@@ -9,7 +9,7 @@ In local dev / unit tests the EMF library detects a non-Lambda environment
 and writes metrics to stdout instead (no-op from a CloudWatch perspective).
 
 Usage:
-    from hive.metrics import emit_metric
+    from starter.metrics import emit_metric
 
     await emit_metric("ToolInvocations", operation="remember")
     await emit_metric("ToolErrors", operation="remember")

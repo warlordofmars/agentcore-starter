@@ -21,9 +21,9 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
-from hive.logging_config import get_logger
-from hive.metrics import emit_metric
-from hive.storage import HiveStorage
+from starter.logging_config import get_logger
+from starter.metrics import emit_metric
+from starter.storage import HiveStorage
 
 router = APIRouter(tags=["csp"])
 logger = get_logger("hive.api.csp")

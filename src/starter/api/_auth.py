@@ -8,10 +8,10 @@ from typing import Any
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from hive.auth.tokens import decode_mgmt_jwt, validate_bearer_token
-from hive.metrics import emit_metric
-from hive.rate_limiter import RateLimitExceeded, check_rate_limit
-from hive.storage import HiveStorage
+from starter.auth.tokens import decode_mgmt_jwt, validate_bearer_token
+from starter.metrics import emit_metric
+from starter.rate_limiter import RateLimitExceeded, check_rate_limit
+from starter.storage import HiveStorage
 
 _bearer = HTTPBearer()
 

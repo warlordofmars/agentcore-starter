@@ -19,20 +19,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.responses import HTMLResponse
 
-from hive.api._auth import require_admin
-from hive.api.account import router as account_router
-from hive.api.admin import router as admin_router
-from hive.api.clients import router as clients_router
-from hive.api.csp import router as csp_router
-from hive.api.keys import router as keys_router
-from hive.api.logs import router as logs_router
-from hive.api.memories import router as memories_router
-from hive.api.stats import router as stats_router
-from hive.api.users import router as users_router
-from hive.api.versions import router as versions_router
-from hive.auth.mgmt_auth import router as mgmt_auth_router
-from hive.auth.oauth import router as oauth_router
-from hive.logging_config import configure_logging, get_logger, new_request_id, set_request_context
+from starter.api._auth import require_admin
+from starter.api.account import router as account_router
+from starter.api.admin import router as admin_router
+from starter.api.clients import router as clients_router
+from starter.api.csp import router as csp_router
+from starter.api.keys import router as keys_router
+from starter.api.logs import router as logs_router
+from starter.api.memories import router as memories_router
+from starter.api.stats import router as stats_router
+from starter.api.users import router as users_router
+from starter.api.versions import router as versions_router
+from starter.auth.mgmt_auth import router as mgmt_auth_router
+from starter.auth.oauth import router as oauth_router
+from starter.logging_config import configure_logging, get_logger, new_request_id, set_request_context
 
 configure_logging("api")
 logger = get_logger("hive.api")
@@ -109,7 +109,7 @@ async def _verify_origin_secret(request: Request, call_next):
     The placeholder value also disables the check so a fresh deploy without
     a rotated secret does not lock out traffic.
     """
-    from hive.auth.tokens import _origin_verify_secret
+    from starter.auth.tokens import _origin_verify_secret
 
     expected = _origin_verify_secret()
     if (

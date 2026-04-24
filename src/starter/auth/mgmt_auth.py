@@ -20,16 +20,16 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from hive.auth.google import (
+from starter.auth.google import (
     exchange_google_code,
     google_authorization_url,
     is_admin_email,
     verify_google_id_token,
 )
-from hive.auth.tokens import ISSUER, issue_mgmt_jwt
-from hive.logging_config import get_logger
-from hive.models import User
-from hive.storage import HiveStorage
+from starter.auth.tokens import ISSUER, issue_mgmt_jwt
+from starter.logging_config import get_logger
+from starter.models import User
+from starter.storage import HiveStorage
 
 router = APIRouter(tags=["mgmt-auth"])
 logger = get_logger("hive.auth.mgmt_auth")

@@ -23,17 +23,17 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 
-from hive.auth.dcr import register_client
-from hive.auth.tokens import ISSUER, issue_jwt
-from hive.metrics import emit_metric
-from hive.models import (
+from starter.auth.dcr import register_client
+from starter.auth.tokens import ISSUER, issue_jwt
+from starter.metrics import emit_metric
+from starter.models import (
     ActivityEvent,
     ClientRegistrationRequest,
     EventType,
     TokenResponse,
     User,
 )
-from hive.storage import AuthCodeAlreadyUsed, HiveStorage
+from starter.storage import AuthCodeAlreadyUsed, HiveStorage
 
 # When set (non-prod environments only), /oauth/authorize issues auth codes
 # directly without redirecting to Google.  This keeps e2e tests functional
@@ -140,7 +140,7 @@ def _bypass_associate_user(storage: HiveStorage, client_id: str, email: str) -> 
     /oauth/authorize.  This mirrors the production Google-callback path so that
     user-scoped MCP tools (list_memories, summarize_context) work in e2e tests.
     """
-    from hive.auth.google import is_admin_email
+    from starter.auth.google import is_admin_email
 
     now = datetime.now(timezone.utc)
     display_name = email.split("@")[0]
@@ -198,7 +198,7 @@ async def authorize(
 
     # In bypass mode (non-prod / e2e testing), skip Google and issue code directly.
     if _BYPASS_GOOGLE_AUTH:
-        from hive.auth.google import is_email_allowed
+        from starter.auth.google import is_email_allowed
 
         # If test_email is provided, upsert the user and associate the client so
         # that user-scoped tools (list_memories, summarize_context) work in e2e.
@@ -222,7 +222,7 @@ async def authorize(
         )
 
     # Production: store PKCE state, then redirect to Google for identity verification.
-    from hive.auth.google import google_authorization_url
+    from starter.auth.google import google_authorization_url
 
     pending = storage.create_pending_auth(
         client_id=client_id,
@@ -257,7 +257,7 @@ async def google_callback(
     error: str = "",
 ) -> RedirectResponse:
     """Handle the redirect from Google after user authentication."""
-    from hive.auth.google import exchange_google_code, is_email_allowed, verify_google_id_token
+    from starter.auth.google import exchange_google_code, is_email_allowed, verify_google_id_token
 
     if error:
         raise HTTPException(status_code=400, detail=f"Google auth error: {error}")
@@ -411,7 +411,7 @@ async def token(  # NOSONAR — complexity inherent in OAuth grant type dispatch
         # Refresh tokens are opaque JTIs stored in DynamoDB
         from jose import JWTError
 
-        from hive.auth.tokens import decode_jwt
+        from starter.auth.tokens import decode_jwt
 
         try:
             claims = decode_jwt(refresh_token)
@@ -437,7 +437,7 @@ async def token(  # NOSONAR — complexity inherent in OAuth grant type dispatch
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported grant_type: {grant_type}")
 
-    from hive.storage import ACCESS_TOKEN_TTL_SECONDS
+    from starter.storage import ACCESS_TOKEN_TTL_SECONDS
 
     storage.log_event(
         ActivityEvent(
@@ -470,7 +470,7 @@ async def revoke(
 ) -> Response:
     from jose import JWTError
 
-    from hive.auth.tokens import decode_jwt
+    from starter.auth.tokens import decode_jwt
 
     try:
         claims = decode_jwt(token)

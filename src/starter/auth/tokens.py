@@ -16,8 +16,8 @@ from typing import Any
 
 from jose import JWTError, jwt
 
-from hive.models import Token
-from hive.storage import HiveStorage
+from starter.models import Token
+from starter.storage import HiveStorage
 
 JWT_ALGORITHM = "HS256"
 ISSUER = os.environ.get("HIVE_ISSUER", "https://hive.example.com")
