@@ -1,0 +1,123 @@
+# Copyright (c) 2026 John Carter. All rights reserved.
+# Scheduled DynamoDB PITR restore test — validates that prod backups are recoverable.
+# Runs weekly and on workflow_dispatch.
+# On failure, opens or updates a GitHub issue labelled 'reliability'.
+name: Backup Restore Test
+
+on:
+  schedule:
+    - cron: "0 3 * * 0"  # every Sunday at 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  id-token: write
+
+jobs:
+  backup-restore-test:
+    name: DynamoDB PITR Restore Test
+    runs-on: ubuntu-latest
+    env:
+      RESTORE_TABLE: hive-backup-test-${{ github.run_id }}
+      SOURCE_TABLE: hive
+      AWS_REGION: us-east-1
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Restore DynamoDB table from PITR
+        id: restore
+        run: |
+          RESTORE_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "Restoring $SOURCE_TABLE → $RESTORE_TABLE at $RESTORE_TIME"
+          aws dynamodb restore-table-to-point-in-time \
+            --source-table-name "$SOURCE_TABLE" \
+            --target-table-name "$RESTORE_TABLE" \
+            --use-latest-restorable-time \
+            --no-sse-specification-override
+
+          # Wait up to 20 minutes for the restore to complete
+          echo "Waiting for restore to complete (up to 20 min)..."
+          for i in $(seq 1 40); do
+            STATUS=$(aws dynamodb describe-table \
+              --table-name "$RESTORE_TABLE" \
+              --query 'Table.TableStatus' \
+              --output text)
+            echo "  Attempt $i: status=$STATUS"
+            if [ "$STATUS" = "ACTIVE" ]; then
+              echo "Restore complete."
+              break
+            fi
+            if [ $i -eq 40 ]; then
+              echo "Restore timed out after 20 minutes."
+              exit 1
+            fi
+            sleep 30
+          done
+
+      - name: Validate restored table
+        id: validate
+        run: |
+          # Verify the table has items (row count > 0)
+          COUNT=$(aws dynamodb scan \
+            --table-name "$RESTORE_TABLE" \
+            --select COUNT \
+            --query 'Count' \
+            --output text)
+          echo "Restored table item count: $COUNT"
+          if [ "$COUNT" -lt 1 ]; then
+            echo "ERROR: Restored table is empty — backup may be corrupt or PITR not enabled."
+            exit 1
+          fi
+          echo "Validation passed: $COUNT items found."
+
+      - name: Delete temporary restore table
+        if: always()
+        run: |
+          echo "Cleaning up temporary table $RESTORE_TABLE..."
+          aws dynamodb delete-table --table-name "$RESTORE_TABLE" || true
+          echo "Cleanup complete."
+
+      - name: Open or update issue on failure
+        if: failure()
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const run_url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'reliability',
+            });
+            const existing = issues.find(i => i.title.includes('DynamoDB backup restore test failing'));
+            if (!existing) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: 'DynamoDB backup restore test failing',
+                body: `## Backup Restore Failure\n\nThe weekly DynamoDB PITR restore test failed, indicating a potential issue with the prod backup chain.\n\nSee the [workflow run](${run_url}) for details.\n\n**Action required:** Verify PITR is enabled on the \`hive\` table and investigate the restore failure.`,
+                labels: ['reliability', 'bug'],
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `Backup restore test still failing. [Run](${run_url})`,
+              });
+            }

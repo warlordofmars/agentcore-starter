@@ -1,0 +1,59 @@
+name: Bug report
+description: Something isn't working as expected
+labels: ["bug", "status:ready"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please fill in as much detail as you can.
+
+        **Security vulnerabilities** — use [private reporting](https://github.com/warlordofmars/hive/security/advisories/new) instead.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Hosted service (hive.warlordofmars.net)
+        - MCP tools (remember / recall / forget / list / summarize)
+        - OAuth / authentication
+        - Management UI
+        - API
+        - Self-hosted deployment
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to ...
+        2. Click ...
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: |
+        - Claude client: Claude Desktop / claude.ai / SDK
+        - Browser (for UI issues): Chrome 123 / Safari 17
+        - OS: macOS 14 / Windows 11

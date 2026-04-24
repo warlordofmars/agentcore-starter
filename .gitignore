@@ -1,0 +1,39 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Node
+node_modules/
+ui/dist/
+ui/coverage/
+
+# Test / coverage artifacts
+.coverage
+coverage.xml
+.pytest_cache/
+htmlcov/
+coverage-unit/
+coverage-js/
+coverage-combined/
+
+# CDK
+infra/cdk.out/
+
+# Misc
+.mypy_cache/
+.ruff_cache/
+
+# Local env / secrets
+.env
+.env.*
+
+# Claude Code
+.claude/
+.autonomous-progress

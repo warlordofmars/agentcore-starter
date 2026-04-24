@@ -1,0 +1,59 @@
+name: Issue label check
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  check-issue-labels:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract linked issue and verify required labels
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Find "Closes #NNN" (or Fixes / Resolves) in PR body or title.
+          # Accepts the GitHub-recognised forms:
+          #   Closes #123, Fixes #123, Resolves #123 (case-insensitive).
+          ISSUE_NUM=$(printf '%s\n%s' "$PR_TITLE" "$PR_BODY" \
+            | grep -oiE '(closes|fixes|resolves)[[:space:]]+#[0-9]+' \
+            | head -1 \
+            | grep -oE '[0-9]+' || true)
+
+          if [ -z "$ISSUE_NUM" ]; then
+            echo "::notice::No linked issue found (PR body/title contains no 'Closes #N'). Skipping label check."
+            exit 0
+          fi
+
+          echo "Linked issue: #$ISSUE_NUM"
+
+          LABELS=$(gh api "repos/$REPO/issues/$ISSUE_NUM" --jq '[.labels[].name] | join(",")')
+          echo "Labels on issue #$ISSUE_NUM: $LABELS"
+
+          MISSING=()
+          echo "$LABELS" | grep -qE '(^|,)status:' || MISSING+=("status:*")
+          echo "$LABELS" | grep -qE '(^|,)priority:' || MISSING+=("priority:p0|p1|p2|p3")
+          echo "$LABELS" | grep -qE '(^|,)size:' || MISSING+=("size:xs|s|m|l|xl")
+          # Release Drafter (#420) groups PRs by category label, so every
+          # issue linked from a PR must carry one of these category labels
+          # so the auto-drafted release notes land in the right section.
+          echo "$LABELS" | grep -qE '(^|,)(enhancement|bug|docs|chore|infra|ci|security|breaking)(,|$)' \
+            || MISSING+=("category (enhancement|bug|docs|chore|infra|ci|security|breaking)")
+
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "::error::Issue #$ISSUE_NUM is missing required labels: ${MISSING[*]}"
+            echo "Add status, priority, size, and a category label to the issue before merging this PR."
+            exit 1
+          fi
+
+          echo "::notice::Issue #$ISSUE_NUM has all required label categories."

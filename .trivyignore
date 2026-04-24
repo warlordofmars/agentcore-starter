@@ -1,0 +1,54 @@
+# Trivy ignore file — accepted-risk findings
+# Format: AVD-ID or CVE-YYYY-NNNNN  # reason
+#
+# Add entries here for findings that have been reviewed and accepted,
+# e.g. because a fix is not yet available or the finding is not exploitable
+# in our deployment context.
+
+# ── IaC misconfigurations (CloudFormation / CDK) ──────────────────────────────
+
+# UiBucket hosts only public static assets (React SPA). AWS-managed SSE is
+# sufficient for public content. Customer-managed KMS adds cost without
+# meaningful security benefit for data that is intentionally public.
+AVD-AWS-0132
+
+# The alarm SNS topic carries only CloudWatch alarm state notifications —
+# no sensitive payload. KMS encryption adds per-message cost with no benefit.
+AVD-AWS-0095
+
+# WAF on CloudFront is intentionally deferred. Hive is a low-traffic SaaS;
+# WAF managed rule sets add per-request cost. Will revisit as traffic grows.
+AVD-AWS-0011
+
+# UiBucket hosts versioned frontend builds deployed and managed by CDK.
+# S3 object versioning would accumulate stale build artifacts. Lifecycle
+# management via CDK deployments is the correct pattern here.
+AVD-AWS-0090
+
+# CloudFront access logging generates high data volumes. CloudWatch metrics
+# and alarms (EMF) provide sufficient operational visibility for this product.
+AVD-AWS-0010
+
+# S3 server-access logging is redundant given CloudFront-level metrics
+# and CloudWatch alarms. Adds storage cost and bucket management overhead.
+AVD-AWS-0089
+
+# DynamoDB uses AWS-owned encryption keys by default (free, automatic).
+# Customer-managed KMS adds per-request cost without additional security
+# for this use case.
+AVD-AWS-0025
+
+# CloudWatch log groups: adding CMK encryption requires complex KMS key
+# policies granting the CloudWatch service principal access in each region.
+# Log data contains no PII or secrets. High operational overhead for minimal
+# security gain.
+AVD-AWS-0017
+
+# DynamoDB PITR is intentionally disabled in the dev stack to reduce cost.
+# It is enabled in the prod stack where data durability is required.
+AVD-AWS-0024
+
+# X-Ray tracing is enabled (ACTIVE) on all application Lambda functions (MCP
+# and API). The dev stack also contains CDK-managed custom resource Lambdas
+# (e.g. AutoDeleteObjects for UiBucket) whose tracing cannot be configured.
+AVD-AWS-0066

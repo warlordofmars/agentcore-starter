@@ -1,0 +1,8 @@
+# Gitleaks configuration for Hive
+# https://github.com/gitleaks/gitleaks#configuration
+
+[allowlist]
+  description = "Known false positives"
+  # curl -u "$SONAR_TOKEN:" in ci.yml is a GitHub Actions secret reference,
+  # not a hardcoded credential.
+  commits = ["2f2c52c2fdae0d0f596188e955538d0f597b6a46"]

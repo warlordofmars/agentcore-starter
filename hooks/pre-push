@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Copyright (c) 2026 John Carter. All rights reserved.
+# Pre-push hook — runs the same gate as CI before any push leaves your machine.
+# Install: uv run inv install-hooks
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+echo "pre-push: ruff lint..."
+uv run ruff check src tests
+
+echo "pre-push: ruff format check..."
+uv run ruff format --check src tests
+
+echo "pre-push: mypy..."
+uv run mypy src/hive
+
+echo "pre-push: copyright headers..."
+uv run python scripts/check_copyright.py
+
+echo "pre-push: unit tests..."
+uv run pytest tests/unit -q
+
+echo "pre-push: frontend tests..."
+cd ui && npm test -- --run
+cd "$ROOT"
+
+echo "pre-push: all checks passed"

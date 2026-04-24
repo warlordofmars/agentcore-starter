@@ -1,0 +1,70 @@
+# Copyright (c) 2026 John Carter. All rights reserved.
+# Synthetic traffic workflow — exercises the full MCP + management API chain
+# every 15 minutes to generate real data points in the CloudWatch metrics dashboard.
+name: Synthetic Traffic
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  synthetic:
+    name: Synthetic Traffic Run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run synthetic traffic
+        id: synthetic
+        env:
+          HIVE_API_URL: ${{ vars.HIVE_API_URL }}
+          HIVE_MCP_URL: ${{ vars.HIVE_MCP_URL }}
+          HIVE_BEARER_TOKEN: ${{ secrets.HIVE_SYNTHETIC_TOKEN }}
+        run: uv run python scripts/synthetic_traffic.py
+        continue-on-error: true
+
+      - name: Open or update issue on failure
+        if: steps.synthetic.outcome == 'failure'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const run_url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'synthetic-traffic',
+            });
+            const existing = issues.find(i => i.title.includes('Synthetic traffic check failing'));
+            if (!existing) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: 'Synthetic traffic check failing',
+                body: `## Synthetic Traffic Failure\n\nThe synthetic traffic workflow failed, indicating a potential issue with the deployed prod stack.\n\nSee the [workflow run](${run_url}) for details.`,
+                labels: ['synthetic-traffic', 'bug'],
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `Synthetic traffic still failing. [Run](${run_url})`,
+              });
+            }
+
+      - name: Fail job if synthetic check failed
+        if: steps.synthetic.outcome == 'failure'
+        run: exit 1

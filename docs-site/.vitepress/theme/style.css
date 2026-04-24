@@ -1,0 +1,464 @@
+/* ============================================================
+   Brand colour — orange, matching marketing site (#e8a020)
+   ============================================================ */
+
+/* ============================================================
+   Navbar height — 56px to match marketing site (h-14 / 56px)
+   VitePress default is 64px.
+   ============================================================ */
+:root {
+  --vp-nav-height: 56px;
+}
+
+/* ============================================================
+   Typography — system-ui to match marketing site font stack
+   ============================================================ */
+:root {
+  --vp-font-family-base: system-ui, -apple-system, sans-serif;
+  --vp-font-family-mono: ui-monospace, "SFMono-Regular", "Menlo", monospace;
+}
+
+:root {
+  --vp-c-brand-1: #e8a020;
+  --vp-c-brand-2: #f5a623;
+  --vp-c-brand-3: #d4891a;
+  --vp-c-brand-soft: rgba(232, 160, 32, 0.14);
+
+  --vp-button-brand-border: transparent;
+  --vp-button-brand-text: #fff;
+  --vp-button-brand-bg: #e8a020;
+  --vp-button-brand-hover-border: transparent;
+  --vp-button-brand-hover-text: #fff;
+  --vp-button-brand-hover-bg: #f5a623;
+  --vp-button-brand-active-border: transparent;
+  --vp-button-brand-active-text: #fff;
+  --vp-button-brand-active-bg: #d4891a;
+
+  /* Override nav background variable used by VitePress */
+  --vp-nav-bg-color: #1a1a2e;
+  --vp-nav-screen-bg-color: #1a1a2e;
+}
+
+.dark {
+  --vp-c-brand-1: #f5a623;
+  --vp-c-brand-2: #e8a020;
+  --vp-c-brand-3: #cc8010;
+  --vp-c-brand-soft: rgba(245, 166, 35, 0.16);
+
+  --vp-nav-bg-color: #1a1a2e;
+  --vp-nav-screen-bg-color: #1a1a2e;
+}
+
+/* ============================================================
+   Navbar — always dark navy (#1a1a2e), matching marketing site
+
+   VitePress navbar internals (1.6.x):
+   - Background is on .VPNavBar directly (not ::before)
+   - On desktop (>=960px), .VPNavBar:not(.home) becomes transparent,
+     and only .content-body gets var(--vp-nav-bg-color)
+   - .has-sidebar pages need .content-body overridden separately
+   - .home.top is transparent by design (hero shows through)
+   ============================================================ */
+
+/* Base — covers mobile and all initial states */
+.VPNavBar {
+  background-color: #1a1a2e !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Explicitly cover every dynamic class combination */
+.VPNavBar.home,
+.VPNavBar.has-sidebar,
+.VPNavBar.home.top,
+.VPNavBar.screen-open {
+  background-color: #1a1a2e !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Desktop — VitePress overrides to transparent; re-apply dark navy */
+@media (min-width: 960px) {
+  .VPNavBar,
+  .VPNavBar:not(.home),
+  .VPNavBar:not(.has-sidebar):not(.home.top),
+  .VPNavBar.home.top {
+    background-color: #1a1a2e !important;
+  }
+
+  /* content-body is the right-side container on desktop */
+  .VPNavBar .content-body {
+    background-color: #1a1a2e !important;
+  }
+
+  .VPNavBar:not(.has-sidebar):not(.home.top) .content-body {
+    background-color: #1a1a2e !important;
+  }
+}
+
+/* Navbar text and links */
+/* Logo wordmark — matches marketing site: bold 20px, 1px letter-spacing */
+.VPNavBarTitle .title {
+  color: #fff !important;
+  font-size: 20px !important;
+  font-weight: 700 !important;
+  letter-spacing: 1px !important;
+}
+
+/* Logo image — matches marketing site 28px height */
+.VPNavBarTitle .logo {
+  height: 28px !important;
+  width: auto !important;
+}
+
+/* "Docs" nav link — matches marketing site style */
+.VPNavBarMenuLink {
+  color: rgba(255, 255, 255, 0.75) !important;
+  font-size: 14px !important;
+}
+
+.VPNavBarMenuLink:hover,
+.VPNavBarMenuLink.active {
+  color: #fff !important;
+  background-color: transparent !important;
+}
+
+/* Desktop navbar group: nav links + Sign in button rendered via
+   nav-bar-content-after so they appear at the far right of the navbar.
+   The whole group is hidden below 768px so the hamburger takes over — but
+   the Sign in button inside it keeps its own always-visible variant
+   (.docs-signin-btn--always) so it renders next to the hamburger on mobile,
+   matching the management app. */
+.docs-nav-group {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+}
+
+@media (min-width: 768px) {
+  .docs-nav-group {
+    display: flex;
+  }
+}
+
+/* Always-visible Sign in: break out of the parent .docs-nav-group hide on
+   mobile so it sits next to the hamburger + appearance toggle. */
+@media (max-width: 767px) {
+  .docs-nav-group {
+    display: flex;
+  }
+
+  .docs-nav-group > .docs-nav-link {
+    display: none;
+  }
+
+  .docs-signin-btn--always {
+    display: inline-flex;
+    padding: 4px 10px;
+    font-size: 13px;
+  }
+
+  /* Navbar parity with the management app (#544 follow-up). The target
+     order at <md is `logo · Hive · [search] · Sign in · theme ·
+     hamburger` — matching marketing/app. Four adjustments:
+       (a) Hide every VitePress vertical divider between groups on the
+           mobile navbar (matches marketing/app, which have none).
+       (b) Re-order so Sign in sits before the Appearance toggle inside
+           .content-body; VPNavBarHamburger lives in a sibling outside
+           .content-body, so also reorder it to land last in .container.
+       (c) Hide the VitePress search button while the mobile drawer is
+           open so the row collapses cleanly to Sign in + theme + X.
+           Search is kept for drawer-closed state (docs-specific).
+       (d) Zero out VitePress's .VPNavScreen container padding + menu
+           margin so our drawer items sit flush to the left like the
+           marketing/app drawers. */
+  .VPNavBar .divider,
+  .VPNavBar .divider-line,
+  .VPNavBar .content-body > .divider {
+    display: none !important;
+  }
+
+  .VPNavBarSearch {
+    order: 0 !important;
+  }
+  .docs-nav-group {
+    order: 1 !important;
+  }
+  .VPNavBarAppearance {
+    order: 2 !important;
+  }
+
+  .VPNavBar .container {
+    display: flex !important;
+  }
+  .VPNavBar .container > .title {
+    order: 0 !important;
+  }
+  .VPNavBar .container > .content {
+    order: 1 !important;
+    flex: 1 1 auto !important;
+  }
+  .VPNavBarHamburger {
+    order: 2 !important;
+  }
+
+  .VPNavBar.screen-open .VPNavBarSearch {
+    display: none !important;
+  }
+}
+
+.docs-nav-link {
+  padding: 0 12px;
+  padding-bottom: 2px;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.75);
+  text-decoration: none;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  transition: color 0.25s, border-color 0.25s;
+}
+
+.docs-nav-link:hover {
+  color: #fff;
+}
+
+.docs-nav-link--active {
+  color: #fff;
+  border-bottom-color: #e8a020;
+}
+
+.docs-signin-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 6px;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.25s, border-color 0.25s;
+}
+
+.docs-signin-btn:hover {
+  color: #fff;
+  border-color: #fff;
+}
+
+/* Mobile drawer — matches the management app/marketing drawer exactly:
+   items flush to the left edge (no centre indent), 16px text weight 500,
+   orange left-border indicator on the active page instead of VitePress's
+   default gray background fill, and the drawer slides into document flow
+   so content below pushes down instead of being covered. */
+.VPNavScreen,
+.VPNavScreen .container,
+.VPNavScreen .VPNavScreenContent {
+  padding: 0 !important;
+  margin: 0 !important;
+  max-width: none !important;
+}
+
+/* Put the drawer in document flow so open state shifts content down
+   (marketing parity). Closed state keeps VitePress's display toggle. */
+.VPNavScreen {
+  position: static !important;
+  height: auto !important;
+  max-height: none !important;
+  top: auto !important;
+  bottom: auto !important;
+  transform: none !important;
+  overflow: visible !important;
+  background-color: #1a1a2e !important;
+}
+
+.VPNavScreen .VPNavScreenMenu,
+.VPNavScreen .VPNavScreenTranslations,
+.VPNavScreen .VPNavScreenSocialLinks {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.docs-screen-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 !important;
+  padding: 16px !important;
+}
+
+.docs-screen-nav-link {
+  display: block;
+  padding: 12px 16px;
+  font-size: 16px !important;
+  line-height: 1.4 !important;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.85);
+  text-decoration: none;
+  border-radius: 6px;
+  border-left: 2px solid transparent;
+  background-color: transparent !important;
+  transition: color 0.15s, background-color 0.15s;
+}
+
+.docs-screen-nav-link:hover,
+.docs-screen-nav-link:focus {
+  color: #fff;
+  background-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+/* Current-page indicator — matches marketing's 2px orange left border
+   (no background fill). */
+.docs-screen-nav-link--active {
+  border-left-color: #e8a020 !important;
+}
+
+/* Show the VitePress appearance (dark/light) toggle in the navbar at every
+   breakpoint so the docs site matches the management app layout (always-
+   visible theme toggle next to Sign in + hamburger). Hide the drawer's
+   "Appearance" row since it's redundant with the navbar. */
+.VPNavBarAppearance {
+  display: flex !important;
+}
+
+.VPNavScreenAppearance {
+  display: none !important;
+}
+
+.VPNavBarSocialLinks .VPSocialLink {
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+
+.VPNavBarSocialLinks .VPSocialLink:hover {
+  color: #fff !important;
+}
+
+/* Hamburger (mobile) */
+.VPNavBarHamburger .top,
+.VPNavBarHamburger .middle,
+.VPNavBarHamburger .bottom {
+  background-color: rgba(255, 255, 255, 0.85) !important;
+}
+
+/* Local search button */
+.VPNavBarSearch .DocSearch-Button {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+.VPNavBarSearch .DocSearch-Button-Placeholder,
+.VPNavBarSearch .DocSearch-Button .DocSearch-Search-Icon {
+  color: rgba(255, 255, 255, 0.55) !important;
+}
+
+.VPNavBarSearch .DocSearch-Button-Keys .DocSearch-Button-Key {
+  color: rgba(255, 255, 255, 0.45) !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+  box-shadow: none !important;
+}
+
+/* Shrink the magnifier-icon search button on narrow screens so it matches the
+   hamburger icon size instead of floating between them as a larger circle. */
+@media (max-width: 767px) {
+  .VPNavBarSearch .DocSearch-Button {
+    width: 24px !important;
+    height: 24px !important;
+    padding: 0 !important;
+    background-color: transparent !important;
+    border: none !important;
+  }
+
+  .VPNavBarSearch .DocSearch-Button .DocSearch-Search-Icon {
+    width: 20px !important;
+    height: 20px !important;
+  }
+}
+
+/* ============================================================
+   Home page hero — gradient matching marketing site
+   ============================================================ */
+.VPHero {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 60%, #0f3460 100%);
+  padding-bottom: 80px;
+}
+
+/* Hero name ("Hive") — plain white instead of default gradient */
+:root {
+  --vp-home-hero-name-color: #fff;
+  --vp-home-hero-name-background: none;
+}
+
+.VPHero .text {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.VPHero .tagline {
+  color: rgba(255, 255, 255, 0.62) !important;
+}
+
+/* ============================================================
+   Feature cards — rounded corners, brand icon colour
+   ============================================================ */
+.VPFeature {
+  border-radius: 12px !important;
+}
+
+.VPFeature .icon {
+  color: var(--vp-c-brand-1);
+}
+
+/* ============================================================
+   Remove the vertical divider VitePress renders between the
+   logo and the nav links — marketing site has no divider.
+   ============================================================ */
+.VPNavBarTitle .divider {
+  display: none !important;
+}
+
+/* ============================================================
+   Footer — match marketing site treatment:
+   muted text, thin top border, compact padding.
+   ============================================================ */
+.VPFooter {
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+  padding: 12px 24px !important;
+}
+
+.VPFooter .message,
+.VPFooter .copyright {
+  font-size: 12px !important;
+  color: rgba(255, 255, 255, 0.45) !important;
+}
+
+/* ============================================================
+   Mobile safety — #528
+   Keep long code blocks and wide tables from busting the
+   375px viewport. VitePress already wraps tables in a
+   `.vp-doc .table-wrapper` with overflow-x auto and sets
+   `overflow-x: auto` on `.vp-code` wrappers, but nested
+   `<pre>` blocks and markdown-rendered tables occasionally
+   slip through — this is belt-and-braces.
+   ============================================================ */
+.vp-doc pre,
+.vp-doc .vp-code,
+.vp-doc .language- {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.vp-doc table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* On narrow screens, trim VitePress's default content padding so
+   the reading column isn't squeezed to ~40% of the viewport. */
+@media (max-width: 375px) {
+  .VPDoc .container,
+  .VPDoc.has-aside .content-container {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+}

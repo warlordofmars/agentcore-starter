@@ -1,0 +1,23 @@
+name: Release drafter
+
+# Keeps a draft GitHub release current as PRs merge into development.
+# The draft is consumed when cutting a release branch so CHANGELOG `[Unreleased]`
+# no longer has to be hand-maintained. See CLAUDE.md §Releasing to production.
+
+on:
+  push:
+    branches: [development]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  update-draft:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: release-drafter/release-drafter@5de93583980a40bd78603b6dfdcda5b4df377b32 # v7.2.0
+        with:
+          config-name: release-drafter.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

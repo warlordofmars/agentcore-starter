@@ -1,0 +1,25 @@
+name: Main branch guard
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check-source-branch:
+    name: check-source-branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject PRs not from release/* or development
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          if [[ "$HEAD_REF" == "development" ]] || [[ "$HEAD_REF" == release/* ]]; then
+            echo "✓ PR from $HEAD_REF — allowed"
+            exit 0
+          fi
+          echo "::error::PRs to main must come from 'development' or 'release/*' branches (got: $HEAD_REF)"
+          echo "See CLAUDE.md §Releasing to production for the correct flow."
+          exit 1

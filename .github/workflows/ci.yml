@@ -1,0 +1,920 @@
+name: CI / Deploy
+
+on:
+  pull_request:
+    branches: [main, development]
+  push:
+    branches: [main, development]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+# Minimal default permissions — jobs that need more declare their own.
+permissions:
+  contents: read
+
+# ── CI jobs (run on every push and PR) ────────────────────────────────────────
+
+jobs:
+  lint-typecheck:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Ruff lint
+        run: uv run ruff check src tests
+
+      - name: Ruff format check
+        run: uv run ruff format --check src tests
+
+      - name: mypy
+        run: uv run mypy src/hive
+
+      - name: Copyright headers
+        run: uv run python scripts/check_copyright.py
+
+      - name: OpenAPI spec drift check (#421)
+        env:
+          HIVE_JWT_SECRET: ci-check
+          HIVE_TABLE_NAME: hive-openapi-check
+        run: |
+          uv run inv export-openapi --out /tmp/openapi.json
+          diff -u docs-site/public/openapi.json /tmp/openapi.json \
+            || { echo "::error::docs-site/public/openapi.json is out of date — run 'uv run inv export-openapi' and commit the result."; exit 1; }
+
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4
+        with:
+          version: "latest"
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: ui/package.json
+
+      - name: Install Python dependencies
+        run: uv sync --all-extras
+
+      - name: Install Node dependencies
+        working-directory: ui
+        run: npm install
+
+      - name: pip-audit
+        # CVE-2026-3219 affects pip 26.0.1 itself (no fix available yet)
+        run: uv run pip-audit --skip-editable --ignore-vuln CVE-2026-3219
+
+      - name: npm audit
+        working-directory: ui
+        run: npm audit --audit-level=high
+
+      - name: Trivy — dependency scan (table, for log visibility)
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "0"
+          ignore-unfixed: true
+          scanners: vuln
+          trivyignores: .trivyignore
+
+      - name: Trivy — dependency scan
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-deps.sarif
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+          scanners: vuln
+          trivyignores: .trivyignore
+          limit-severities-for-sarif: "true"
+
+      - name: Upload Trivy dependency results to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@f94817b9f0deeb3871261446912ae8f854d1b675 # codeql-bundle-v2.25.1
+        with:
+          sarif_file: trivy-deps.sarif
+          category: trivy-deps
+
+      - name: Gitleaks — secret scan
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run unit tests with coverage
+        run: uv run pytest tests/unit -v --cov=hive --cov-report=xml:coverage-unit.xml
+
+      - name: Write coverage summary
+        if: always()
+        run: |
+          echo "## Unit Test Coverage" >> $GITHUB_STEP_SUMMARY
+          uv run coverage report --format=markdown >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload unit coverage artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage-unit
+          path: coverage-unit.xml
+
+  integration-tests:
+    name: Integration Tests (DynamoDB Local)
+    runs-on: ubuntu-latest
+    services:
+      dynamodb-local:
+        image: amazon/dynamodb-local:latest
+        ports:
+          - 8000:8000
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run combined unit + integration tests with coverage
+        env:
+          DYNAMODB_ENDPOINT: http://localhost:8000
+          AWS_ACCESS_KEY_ID: local
+          AWS_SECRET_ACCESS_KEY: local
+          AWS_DEFAULT_REGION: us-east-1
+          HIVE_JWT_SECRET: test-secret
+          HIVE_TABLE_NAME: hive-integration
+        run: uv run pytest tests/unit tests/integration -v --cov=hive --cov-report=xml:coverage-combined.xml --cov-fail-under=100
+
+      - name: Write coverage summary
+        if: always()
+        run: |
+          echo "## Combined Test Coverage" >> $GITHUB_STEP_SUMMARY
+          uv run coverage report --format=markdown >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload combined coverage artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage-combined
+          path: coverage-combined.xml
+
+  coverage:
+    name: Coverage Report
+    needs: [unit-tests, integration-tests, frontend]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      security-events: write
+      statuses: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          fetch-depth: 0  # SonarCloud needs full history for blame/new-code detection
+
+      - name: Download unit coverage
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: coverage-unit
+
+      - name: Download combined coverage
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: coverage-combined
+
+      - name: Download JS coverage
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: coverage-js
+
+      - name: Post coverage comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            // Parse Python unit coverage XML
+            const xml = fs.readFileSync('coverage-unit.xml', 'utf8');
+            const lineRate = parseFloat(xml.match(/line-rate="([^"]+)"/)?.[1] ?? '0');
+            const pct = (lineRate * 100).toFixed(1);
+            const emoji = lineRate >= 0.9 ? '🟢' : lineRate >= 0.8 ? '🟡' : '🔴';
+
+            // Build Python module rows from XML
+            const rows = [];
+            const classMatches = [...xml.matchAll(/<class[^>]*filename="([^"]*)"[^>]*line-rate="([^"]*)"[^>]*>/g)];
+            for (const m of classMatches) {
+              const name = m[1].replace('src/', '');
+              const rate = (parseFloat(m[2]) * 100).toFixed(0);
+              const bar = rate >= 90 ? '🟢' : rate >= 80 ? '🟡' : '🔴';
+              rows.push(`| \`${name}\` | ${rate}% | ${bar} |`);
+            }
+
+            // Parse JS lcov coverage — sum lines found/hit across all files
+            let jsLines = 0, jsHit = 0;
+            const jsRows = [];
+            try {
+              const lcov = fs.readFileSync('lcov.info', 'utf8');
+              let curFile = null, curFound = 0, curHit = 0;
+              for (const line of lcov.split('\n')) {
+                if (line.startsWith('SF:')) {
+                  curFile = line.slice(3).replace(/^.*\/src\//, 'src/');
+                  curFound = 0; curHit = 0;
+                } else if (line.startsWith('LF:')) {
+                  curFound = parseInt(line.slice(3), 10);
+                  jsLines += curFound;
+                } else if (line.startsWith('LH:')) {
+                  curHit = parseInt(line.slice(3), 10);
+                  jsHit += curHit;
+                } else if (line === 'end_of_record' && curFile) {
+                  const r = curFound > 0 ? (curHit / curFound * 100).toFixed(0) : '100';
+                  const b = parseInt(r) >= 90 ? '🟢' : parseInt(r) >= 80 ? '🟡' : '🔴';
+                  jsRows.push(`| \`${curFile}\` | ${r}% | ${b} |`);
+                  curFile = null;
+                }
+              }
+            } catch (_) { /* lcov not available */ }
+
+            const jsPct = jsLines > 0 ? (jsHit / jsLines * 100).toFixed(1) : null;
+            const jsEmoji = jsPct !== null ? (parseFloat(jsPct) >= 90 ? '🟢' : '🟡') : '⚪';
+
+            const body = [
+              `<!-- coverage-report -->`,
+              `## Coverage Report`,
+              ``,
+              `### ${emoji} Python — ${pct}%`,
+              ``,
+              `| File | Cover | |`,
+              `|:---|---:|:---|`,
+              ...rows,
+              ``,
+              ...(jsPct !== null ? [
+                `### ${jsEmoji} JavaScript — ${jsPct}%`,
+                ``,
+                `| File | Cover | |`,
+                `|:---|---:|:---|`,
+                ...jsRows,
+                ``,
+              ] : []),
+              `> [full run](${context.payload.pull_request.html_url}/checks)`,
+            ].join('\n');
+
+            // Find existing comment and update, or create new
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body.includes('<!-- coverage-report -->'));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@0303d6b62e310685c0e34d0b9cde218036885c4d # v5.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          # SonarCloud free plan only supports one main branch (development).
+          # Quality gate status API returns 'not found' for main, so skip the
+          # wait on main-branch pushes; keep it enforced on development + PRs.
+          args: ${{ github.ref == 'refs/heads/main' && '-Dsonar.qualitygate.wait=false' || '' }}
+
+      - name: Fetch SonarCloud issues as SARIF
+        if: always()
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          curl -s -u "$SONAR_TOKEN:" \
+            "https://sonarcloud.io/api/issues/search?projectKeys=warlordofmars_hive&resolved=false&types=VULNERABILITY,SECURITY_HOTSPOT&ps=500" \
+            -o sonar-issues.json
+          python3 scripts/sonar_to_sarif.py sonar-issues.json sonar.sarif
+
+      - name: Upload SonarCloud results to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@f94817b9f0deeb3871261446912ae8f854d1b675 # codeql-bundle-v2.25.1
+        with:
+          sarif_file: sonar.sarif
+          category: sonarcloud
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
+        with:
+          files: coverage-unit.xml,coverage-combined.xml,lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+  frontend:
+    name: Frontend Tests & Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: ui/package.json
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run vitest with coverage
+        run: npm run test:coverage -- --reporter=verbose
+
+      - name: Build
+        run: npm run build
+
+      - name: Build docs site
+        working-directory: docs-site
+        run: npm install && npm run build
+
+      - name: Write JS coverage summary
+        if: always()
+        run: |
+          echo "## Frontend Test Coverage" >> $GITHUB_STEP_SUMMARY
+          node - << 'EOF'
+          const fs = require('fs');
+          const lcov = fs.readFileSync('coverage/lcov.info', 'utf8');
+          let totalFound = 0, totalHit = 0;
+          const rows = [];
+          let curFile = null, curFound = 0, curHit = 0;
+          for (const line of lcov.split('\n')) {
+            if (line.startsWith('SF:')) {
+              curFile = line.slice(3).replace(/^.*\/src\//, 'src/');
+              curFound = 0; curHit = 0;
+            } else if (line.startsWith('LF:')) {
+              curFound = parseInt(line.slice(3), 10);
+              totalFound += curFound;
+            } else if (line.startsWith('LH:')) {
+              curHit = parseInt(line.slice(3), 10);
+              totalHit += curHit;
+            } else if (line === 'end_of_record' && curFile) {
+              const pct = curFound > 0 ? (curHit / curFound * 100).toFixed(0) : 100;
+              const bar = pct >= 90 ? '🟢' : pct >= 80 ? '🟡' : '🔴';
+              rows.push(`| \`${curFile}\` | ${pct}% | ${bar} |`);
+              curFile = null;
+            }
+          }
+          const total = totalFound > 0 ? (totalHit / totalFound * 100).toFixed(1) : 100;
+          const summary = [
+            `| File | Lines | |`,
+            `|:---|---:|:---|`,
+            ...rows,
+            ``,
+            `**Total: ${total}%**`,
+          ].join('\n');
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary + '\n');
+          EOF
+
+      - name: Upload JS coverage artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage-js
+          path: ui/coverage/lcov.info
+
+  infra-synth:
+    name: Infra Synth
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4
+        with:
+          version: "latest"
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+
+      - name: Install CDK
+        run: npm install -g aws-cdk
+
+      - name: Install Python dependencies
+        run: uv sync --group dev --group infra
+
+      - name: Synth prod stack
+        working-directory: infra
+        run: cdk synth HiveStack --no-staging -c env=prod -c hosted_zone_id=${{ vars.HOSTED_ZONE_ID }}
+
+      - name: Synth dev stack
+        working-directory: infra
+        run: cdk synth HiveStack-dev --no-staging -c env=dev -c hosted_zone_id=${{ vars.HOSTED_ZONE_ID }}
+
+      - name: Trivy — IaC scan (table, for log visibility)
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          scan-type: config
+          scan-ref: infra/cdk.out/
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "0"
+          trivyignores: .trivyignore
+
+      - name: Trivy — IaC scan (CloudFormation templates)
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          scan-type: config
+          scan-ref: infra/cdk.out/
+          format: sarif
+          output: trivy-iac.sarif
+          severity: HIGH,CRITICAL
+          # cdk-nag is the hard gate for IaC security (fails synth on violations).
+          # Trivy IaC is informational — findings go to the Security tab.
+          exit-code: "0"
+          trivyignores: .trivyignore
+
+      - name: Upload Trivy IaC results to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@f94817b9f0deeb3871261446912ae8f854d1b675 # codeql-bundle-v2.25.1
+        with:
+          sarif_file: trivy-iac.sarif
+          category: trivy-iac
+
+  notify-pipeline-failure:
+    name: Notify Slack — CI Failure
+    needs: [lint-typecheck, audit, unit-tests, integration-tests, coverage, frontend, infra-synth]
+    if: >-
+      always() &&
+      contains(needs.*.result, 'failure') &&
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/development' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - name: Notify Slack
+        if: env.SLACK_WEBHOOK_URL != ''
+        uses: slackapi/slack-github-action@485a9d42d3a73031f12ec201c457e2162c45d02d # v2.0.0
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": ":x: CI pipeline failed on *${{ github.ref_name }}*",
+              "attachments": [{
+                "color": "danger",
+                "text": "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              }]
+            }
+
+# ── Deploy to dev (push to development) ───────────────────────────────────────
+
+  deploy-dev:
+    name: Deploy (dev)
+    needs: [lint-typecheck, audit, unit-tests, integration-tests, coverage, frontend, infra-synth]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/development'
+    runs-on: ubuntu-latest
+    environment: development
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    outputs:
+      mcp_url: ${{ steps.urls.outputs.mcp_url }}
+      api_url: ${{ steps.urls.outputs.api_url }}
+      ui_url: ${{ steps.urls.outputs.ui_url }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4
+        with:
+          version: "latest"
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: ui/package.json
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEV_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Install CDK
+        run: npm install -g aws-cdk
+
+      - name: Install Python dependencies
+        run: uv sync --group dev --group infra
+
+      - name: Build React UI
+        working-directory: ui
+        env:
+          VITE_GA_MEASUREMENT_ID: ${{ secrets.VITE_GA_MEASUREMENT_ID }}
+        run: npm install && npm run build
+
+      - name: Build docs site
+        working-directory: docs-site
+        run: npm install && npm run build
+
+      - name: Deploy dev stack
+        env:
+          VITE_GA_MEASUREMENT_ID: ${{ secrets.VITE_GA_MEASUREMENT_ID }}
+        run: uv run inv deploy --env dev
+
+      - name: Export stack URLs
+        id: urls
+        run: |
+          STACK=HiveStack-dev
+          query() { aws cloudformation describe-stacks --stack-name $STACK --region us-east-1 \
+            --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
+          echo "mcp_url=$(query McpFunctionUrl)" >> "$GITHUB_OUTPUT"
+          echo "api_url=$(query ApiFunctionUrl)"  >> "$GITHUB_OUTPUT"
+          echo "ui_url=$(query UiUrl)"            >> "$GITHUB_OUTPUT"
+
+      - name: Notify Slack — deploy success
+        if: env.SLACK_WEBHOOK_URL != ''
+        uses: slackapi/slack-github-action@485a9d42d3a73031f12ec201c457e2162c45d02d # v2.0.0
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": ":white_check_mark: Deploy to *dev* succeeded",
+              "attachments": [{
+                "color": "good",
+                "text": "MCP: ${{ steps.urls.outputs.mcp_url }}\nAPI: ${{ steps.urls.outputs.api_url }}\nUI: ${{ steps.urls.outputs.ui_url }}"
+              }]
+            }
+
+      - name: Notify Slack — deploy failure
+        if: failure() && env.SLACK_WEBHOOK_URL != ''
+        uses: slackapi/slack-github-action@485a9d42d3a73031f12ec201c457e2162c45d02d # v2.0.0
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": ":x: Deploy to *dev* failed",
+              "attachments": [{
+                "color": "danger",
+                "text": "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              }]
+            }
+
+  e2e-dev:
+    name: E2E Tests (dev)
+    needs: deploy-dev
+    if: github.event_name == 'push' && github.ref == 'refs/heads/development'
+    runs-on: ubuntu-latest
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Install Playwright
+        run: uv run playwright install chromium --with-deps
+
+      - name: Run auth + MCP e2e tests
+        env:
+          HIVE_API_URL: ${{ needs.deploy-dev.outputs.api_url }}
+          HIVE_MCP_URL: ${{ needs.deploy-dev.outputs.mcp_url }}
+          HIVE_E2E_EMAIL: ${{ vars.HIVE_ADMIN_EMAIL }}
+        run: uv run pytest tests/e2e/test_auth_e2e.py tests/e2e/test_mcp_e2e.py -v
+
+      - name: Run admin metrics e2e tests
+        env:
+          HIVE_API_URL: ${{ needs.deploy-dev.outputs.api_url }}
+          HIVE_ADMIN_EMAIL: ${{ vars.HIVE_ADMIN_EMAIL }}
+        run: uv run pytest tests/e2e/test_admin_e2e.py -v
+
+      - name: Run UI e2e tests (Playwright)
+        env:
+          HIVE_API_URL: ${{ needs.deploy-dev.outputs.api_url }}
+          HIVE_UI_URL: ${{ needs.deploy-dev.outputs.ui_url }}
+        run: uv run pytest tests/e2e/test_ui_e2e.py -v
+
+      - name: Run docs e2e tests (Playwright)
+        env:
+          HIVE_UI_URL: ${{ needs.deploy-dev.outputs.ui_url }}
+        run: uv run pytest tests/e2e/test_docs_e2e.py -v
+
+      - name: Run Dashboard e2e tests (Playwright)
+        env:
+          HIVE_UI_URL: ${{ needs.deploy-dev.outputs.ui_url }}
+          HIVE_ADMIN_EMAIL: ${{ vars.HIVE_ADMIN_EMAIL }}
+        run: uv run pytest tests/e2e/test_dashboard_e2e.py -v
+
+      - name: Issue synthetic token via PKCE bypass
+        id: synth-token
+        env:
+          HIVE_API_URL: ${{ needs.deploy-dev.outputs.api_url }}
+        run: |
+          TOKEN=$(uv run python - <<'PYEOF'
+          import base64, hashlib, os, secrets
+          import httpx
+
+          api = os.environ["HIVE_API_URL"].rstrip("/")
+          verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()
+          challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+
+          with httpx.Client(base_url=api, follow_redirects=False, timeout=30.0) as http:
+              reg = http.post("/oauth/register", json={
+                  "client_name": "Synthetic Traffic", "redirect_uris": ["http://localhost/cb"],
+              })
+              reg.raise_for_status()
+              client_id = reg.json()["client_id"]
+
+              auth = http.get("/oauth/authorize", params={
+                  "response_type": "code", "client_id": client_id,
+                  "redirect_uri": "http://localhost/cb",
+                  "code_challenge": challenge, "code_challenge_method": "S256",
+              })
+              location = auth.headers.get("location", "")
+              if "accounts.google.com" in location:
+                  raise RuntimeError("Google OAuth redirect — HIVE_BYPASS_GOOGLE_AUTH not enabled on dev")
+              code = location.split("code=")[1].split("&")[0]
+
+              token_resp = http.post("/oauth/token", data={
+                  "grant_type": "authorization_code", "code": code,
+                  "redirect_uri": "http://localhost/cb", "client_id": client_id,
+                  "code_verifier": verifier,
+              })
+              token_resp.raise_for_status()
+              print(token_resp.json()["access_token"], end="")
+          PYEOF
+          )
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Run synthetic traffic (dev)
+        env:
+          HIVE_API_URL: ${{ needs.deploy-dev.outputs.ui_url }}
+          HIVE_MCP_URL: ${{ needs.deploy-dev.outputs.ui_url }}
+          HIVE_BEARER_TOKEN: ${{ steps.synth-token.outputs.token }}
+        run: uv run python scripts/synthetic_traffic.py
+
+      - name: Notify Slack — e2e failure
+        if: failure() && env.SLACK_WEBHOOK_URL != ''
+        uses: slackapi/slack-github-action@485a9d42d3a73031f12ec201c457e2162c45d02d # v2.0.0
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": ":x: E2E tests failed on *dev* after deploy",
+              "attachments": [{
+                "color": "danger",
+                "text": "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              }]
+            }
+
+# ── Release + deploy to prod (push to main) ───────────────────────────────────
+
+  release:
+    name: Release
+    needs: [lint-typecheck, audit, unit-tests, integration-tests, coverage, frontend, infra-synth]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          fetch-depth: 0   # needed for git describe to find the previous tag
+
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Infer version and create release
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(uv run inv version)
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "v$VERSION"
+          git push origin "v$VERSION"
+          gh release create "v$VERSION" --generate-notes --title "v$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  deploy-prod:
+    name: Deploy (prod)
+    needs: release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    outputs:
+      mcp_url: ${{ steps.urls.outputs.mcp_url }}
+      api_url: ${{ steps.urls.outputs.api_url }}
+      ui_url: ${{ steps.urls.outputs.ui_url }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4
+        with:
+          version: "latest"
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: ui/package.json
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Install CDK
+        run: npm install -g aws-cdk
+
+      - name: Install Python dependencies
+        run: uv sync --group dev --group infra
+
+      - name: Build React UI
+        working-directory: ui
+        env:
+          VITE_GA_MEASUREMENT_ID: ${{ secrets.VITE_GA_MEASUREMENT_ID }}
+        run: npm install && npm run build
+
+      - name: Build docs site
+        working-directory: docs-site
+        run: npm install && npm run build
+
+      - name: Deploy prod stack
+        env:
+          APP_VERSION: ${{ needs.release.outputs.version }}
+          VITE_GA_MEASUREMENT_ID: ${{ secrets.VITE_GA_MEASUREMENT_ID }}
+        run: uv run inv deploy --env prod
+
+      - name: Export stack URLs
+        id: urls
+        run: |
+          STACK=HiveStack
+          query() { aws cloudformation describe-stacks --stack-name $STACK --region us-east-1 \
+            --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
+          echo "mcp_url=$(query McpFunctionUrl)" >> "$GITHUB_OUTPUT"
+          echo "api_url=$(query ApiFunctionUrl)"  >> "$GITHUB_OUTPUT"
+          echo "ui_url=$(query UiUrl)"            >> "$GITHUB_OUTPUT"
+
+      - name: Notify Slack — deploy success
+        if: env.SLACK_WEBHOOK_URL != ''
+        uses: slackapi/slack-github-action@485a9d42d3a73031f12ec201c457e2162c45d02d # v2.0.0
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": ":white_check_mark: Deploy to *prod* succeeded — version `${{ needs.release.outputs.version }}`",
+              "attachments": [{
+                "color": "good",
+                "text": "MCP: ${{ steps.urls.outputs.mcp_url }}\nAPI: ${{ steps.urls.outputs.api_url }}\nUI: ${{ steps.urls.outputs.ui_url }}"
+              }]
+            }
+
+      - name: Notify Slack — deploy failure
+        if: failure() && env.SLACK_WEBHOOK_URL != ''
+        uses: slackapi/slack-github-action@485a9d42d3a73031f12ec201c457e2162c45d02d # v2.0.0
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": ":x: Deploy to *prod* failed — version `${{ needs.release.outputs.version }}`",
+              "attachments": [{
+                "color": "danger",
+                "text": "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              }]
+            }
+
+  e2e-prod:
+    name: E2E Tests (prod)
+    needs: deploy-prod
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      # All e2e tests require HIVE_BYPASS_GOOGLE_AUTH which is dev-only.
+      # Run a lightweight smoke test instead — just verify the prod API is up.
+      - name: Smoke test prod API
+        env:
+          HIVE_API_URL: ${{ needs.deploy-prod.outputs.api_url }}
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$HIVE_API_URL/health")
+          echo "Health check status: $STATUS"
+          [ "$STATUS" = "200" ] || (echo "Prod health check failed!" && exit 1)
+
+      - name: Notify Slack — e2e failure
+        if: failure() && env.SLACK_WEBHOOK_URL != ''
+        uses: slackapi/slack-github-action@485a9d42d3a73031f12ec201c457e2162c45d02d # v2.0.0
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": ":x: E2E tests failed on *prod* after deploy",
+              "attachments": [{
+                "color": "danger",
+                "text": "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              }]
+            }
+
+  back-merge:
+    name: Back-merge main → development
+    needs: e2e-prod
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Create back-merge PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run inv back-merge

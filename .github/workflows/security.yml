@@ -1,0 +1,83 @@
+# Copyright (c) 2026 John Carter. All rights reserved.
+# Weekly Trivy security scan — catches newly disclosed CVEs against the
+# current codebase even when no PRs are open.
+name: Security Scan (weekly)
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Every Monday at 06:00 UTC
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: read
+  security-events: write
+  issues: write
+
+jobs:
+  trivy-weekly:
+    name: Trivy Full Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Trivy — dependency scan
+        id: trivy-deps
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-deps.sarif
+          severity: HIGH,CRITICAL
+          exit-code: "0" # Don't fail — report findings via issue instead
+          ignore-unfixed: true
+
+      - name: Upload dependency scan results to GitHub Security
+        uses: github/codeql-action/upload-sarif@f94817b9f0deeb3871261446912ae8f854d1b675 # codeql-bundle-v2.25.1
+        with:
+          sarif_file: trivy-deps.sarif
+          category: trivy-deps-weekly
+
+      - name: Check for new HIGH/CRITICAL findings
+        id: check
+        run: |
+          COUNT=$(python3 -c "
+          import json, sys
+          with open('trivy-deps.sarif') as f:
+              data = json.load(f)
+          runs = data.get('runs', [])
+          total = sum(len(r.get('results', [])) for r in runs)
+          print(total)
+          ")
+          echo "finding_count=$COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: Open issue if new findings detected
+        if: steps.check.outputs.finding_count != '0'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const count = '${{ steps.check.outputs.finding_count }}';
+            const run_url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'security',
+            });
+            const existing = issues.find(i => i.title.includes('Trivy: HIGH/CRITICAL vulnerabilities detected'));
+            if (!existing) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: 'Trivy: HIGH/CRITICAL vulnerabilities detected',
+                body: `## Security Alert\n\nTrivy detected **${count}** HIGH or CRITICAL vulnerability finding(s) in the weekly scan.\n\nSee the [Security tab](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/security/code-scanning) for details.\n\n[Workflow run](${run_url})`,
+                labels: ['security'],
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `Weekly scan still detecting **${count}** finding(s). [Run](${run_url})`,
+              });
+            }

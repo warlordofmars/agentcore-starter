@@ -1,0 +1,63 @@
+# Configuration for release-drafter: aggregates merged PR titles into a
+# draft release so we never have to hand-maintain CHANGELOG `[Unreleased]`.
+# Categories map to the label taxonomy in CLAUDE.md §Backlog labels.
+
+name-template: "v$RESOLVED_VERSION"
+tag-template: "v$RESOLVED_VERSION"
+
+categories:
+  - title: "Features"
+    labels:
+      - "enhancement"
+      - "feature"
+  - title: "Fixes"
+    labels:
+      - "bug"
+      - "fix"
+  - title: "Security"
+    labels:
+      - "security"
+  - title: "Docs"
+    labels:
+      - "docs"
+  - title: "Infrastructure & CI"
+    labels:
+      - "infra"
+      - "ci"
+  - title: "Chores"
+    labels:
+      - "chore"
+
+change-template: "- $TITLE (#$NUMBER)"
+change-title-escapes: '\<*_&'
+
+version-resolver:
+  major:
+    labels:
+      - "breaking"
+  minor:
+    labels:
+      - "enhancement"
+      - "feature"
+  patch:
+    labels:
+      - "bug"
+      - "fix"
+      - "docs"
+      - "chore"
+      - "infra"
+      - "ci"
+      - "security"
+  default: patch
+
+# Any PR that doesn't match a category above still appears here so
+# nothing is silently dropped.
+exclude-labels:
+  - "skip-changelog"
+
+template: |
+  ## What's changed
+
+  $CHANGES
+
+  **Full Changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
