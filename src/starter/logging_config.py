@@ -1,6 +1,6 @@
 # Copyright (c) 2026 John Carter. All rights reserved.
 """
-Structured JSON logging for Hive.
+Structured JSON logging for AgentCore Starter.
 
 Call configure_logging(service) once at Lambda cold start (or local server
 startup).  All subsequent calls to get_logger() return a logger whose output
@@ -74,20 +74,20 @@ class _JsonFormatter(logging.Formatter):
 
 
 def configure_logging(service: str) -> None:
-    """Configure the 'hive' logger with JSON output.
+    """Configure the 'starter' logger with JSON output.
 
     Safe to call multiple times — only installs the handler once.
     """
     global _SERVICE, _VERSION, _ENV
 
     _SERVICE = service
-    _ENV = os.environ.get("HIVE_ENV", os.environ.get("APP_ENV", "dev"))
+    _ENV = os.environ.get("STARTER_ENV", os.environ.get("APP_ENV", "dev"))
     try:
-        _VERSION = importlib.metadata.version("hive")
+        _VERSION = importlib.metadata.version("agentcore-starter")
     except importlib.metadata.PackageNotFoundError:
         _VERSION = os.environ.get("APP_VERSION", "dev")
 
-    logger = logging.getLogger("hive")
+    logger = logging.getLogger("starter")
     if not logger.handlers:
         handler = logging.StreamHandler()
         handler.setFormatter(_JsonFormatter())
@@ -99,8 +99,8 @@ def configure_logging(service: str) -> None:
     logging.getLogger("uvicorn.access").propagate = False
 
 
-def get_logger(name: str = "hive") -> logging.Logger:
-    """Return the named logger (default: root hive logger)."""
+def get_logger(name: str = "starter") -> logging.Logger:
+    """Return the named logger (default: root starter logger)."""
     return logging.getLogger(name)
 
 

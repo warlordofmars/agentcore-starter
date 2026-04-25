@@ -22,8 +22,8 @@ import os
 
 from aws_embedded_metrics.logger.metrics_logger_factory import create_metrics_logger
 
-NAMESPACE = "Hive"
-ENVIRONMENT = os.environ.get("HIVE_ENV", os.environ.get("ENV", "local"))
+NAMESPACE = "AgentCoreStarter"
+ENVIRONMENT = os.environ.get("STARTER_ENV", os.environ.get("ENV", "local"))
 
 
 async def emit_metric(

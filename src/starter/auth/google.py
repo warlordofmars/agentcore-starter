@@ -1,14 +1,8 @@
 # Copyright (c) 2026 John Carter. All rights reserved.
 """
-Google OAuth 2.0 integration for Hive.
+Google OAuth 2.0 integration.
 
-Hive uses Google as an identity provider for human-facing login while keeping
-its own OAuth 2.1 stack intact for MCP clients.  The flow is:
-
-  1. /oauth/authorize → redirect to Google
-  2. Google → /oauth/google/callback (this module handles the callback)
-  3. Hive verifies the Google ID token + checks email allowlist
-  4. Hive creates its own AuthorizationCode and redirects to the original redirect_uri
+Uses Google as an identity provider for human-facing management UI login.
 
 Configuration (env vars or SSM parameters):
   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_ID_PARAM
@@ -45,14 +39,18 @@ def _ssm_param(name: str) -> str:
 def _google_client_id() -> str:
     if val := os.environ.get("GOOGLE_CLIENT_ID"):
         return val
-    return _ssm_param(os.environ.get("GOOGLE_CLIENT_ID_PARAM", "/hive/google-client-id"))
+    return _ssm_param(
+        os.environ.get("GOOGLE_CLIENT_ID_PARAM", "/agentcore-starter/google-client-id")
+    )
 
 
 @functools.lru_cache(maxsize=1)
 def _google_client_secret() -> str:
     if val := os.environ.get("GOOGLE_CLIENT_SECRET"):
         return val
-    return _ssm_param(os.environ.get("GOOGLE_CLIENT_SECRET_PARAM", "/hive/google-client-secret"))
+    return _ssm_param(
+        os.environ.get("GOOGLE_CLIENT_SECRET_PARAM", "/agentcore-starter/google-client-secret")
+    )
 
 
 @functools.lru_cache(maxsize=1)
@@ -60,7 +58,9 @@ def _allowed_emails() -> frozenset[str]:
     if val := os.environ.get("ALLOWED_EMAILS"):
         return frozenset(json.loads(val))
     try:
-        raw = _ssm_param(os.environ.get("ALLOWED_EMAILS_PARAM", "/hive/allowed-emails"))
+        raw = _ssm_param(
+            os.environ.get("ALLOWED_EMAILS_PARAM", "/agentcore-starter/allowed-emails")
+        )
         return frozenset(json.loads(raw))
     except Exception:
         return frozenset()  # empty = allow all (open)
@@ -123,7 +123,7 @@ async def verify_google_id_token(id_token: str) -> dict[str, Any]:
 
 
 def is_email_allowed(email: str) -> bool:
-    """Return True if the email is permitted to access Hive.
+    """Return True if the email is permitted to access the application.
 
     An empty allowlist means open access (allow all verified Google accounts).
     """

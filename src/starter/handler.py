@@ -16,7 +16,10 @@ def lambda_handler(event: dict[str, Any], context: object) -> dict[str, Any]:
     """AWS Lambda + Function URL entry point."""
     logger.info(
         "request received",
-        extra={"path": event.get("rawPath", "/"), "method": event.get("requestContext", {}).get("http", {}).get("method", "?")},
+        extra={
+            "path": event.get("rawPath", "/"),
+            "method": event.get("requestContext", {}).get("http", {}).get("method", "?"),
+        },
     )
     return {
         "statusCode": 200,
