@@ -181,14 +181,25 @@ If the same check fails 3 times without a clear fix, stop and ask.
 
 Runs on **every** agent-created PR. The `agent-safe` label only gates whether the agent merges autonomously after the review — every PR gets a second opinion.
 
-1. After CI is green, request a Copilot review via `mcp__github__request_copilot_review`.
-2. Wait for the Copilot **`Agent` check-run** to reach `completed`, then wait an **additional ~90s** before calling `get_review_comments` — the Agent check closes before Copilot finishes writing line-level comments (observed: Agent completed at 12:41:52, comments posted at 12:43:03). Do not rely on `get_reviews` alone — subsequent Copilot iterations can post line comments without creating a new top-level review object.
+1. After CI is green, request a Copilot review:
+   ```bash
+   gh pr edit <PR-NUMBER> --add-reviewer "@copilot"
+   ```
+2. Wait for the Copilot **`Agent` check-run** to reach `completed`, then wait an **additional ~90s** before fetching review comments — the Agent check closes before Copilot finishes writing line-level comments (observed: Agent completed at 12:41:52, comments posted at 12:43:03). Poll with:
+   ```bash
+   gh api repos/{owner}/{repo}/pulls/<PR-NUMBER>/comments --jq '.[].body'
+   gh api repos/{owner}/{repo}/pulls/<PR-NUMBER>/reviews --jq '.[] | {state, body: .body[:120]}'
+   ```
+   Do not rely on `get_reviews` alone — subsequent Copilot iterations can post line comments without creating a new top-level review object.
 3. Triage each unresolved thread. **Every thread gets a reply before it's resolved.**
    - **Correctness / security / clarity finding** — fix on the same branch, run `uv run inv pre-push`, push, reply `Fixed in <SHA> — <one-line summary>`, resolve the thread, re-request Copilot review.
    - **Pure style nit** (Tailwind class order, const-vs-let, naming preference, import sort) — reply declining with a citation to project conventions, resolve the thread.
    - **Ambiguous or architecturally significant** — emit `HUMAN_INPUT_REQUIRED: Copilot flagged X on #NNN — unclear call` and stop. Leave the thread open.
 4. **Hard cap: 5 iterations, early-exit on convergence.** Stop when 5 round-trips are done OR two consecutive iterations produce no new actionable findings. If unresolved findings remain, emit `HUMAN_INPUT_REQUIRED: Copilot loop ended with open findings on #NNN`.
-5. **Agent-safe PRs**: arm auto-merge via `mcp__github__enable_pr_auto_merge` (squash).
+5. **Agent-safe PRs**: arm auto-merge:
+   ```bash
+   gh pr merge <PR-NUMBER> --auto --squash --delete-branch
+   ```
    **Non-agent-safe PRs**: emit `HUMAN_INPUT_REQUIRED: PR #NNN ready for human review + merge` and stop.
 
 ### 8. Monitor development branch CI/CD post-merge
