@@ -11,9 +11,9 @@ Required env vars:
 
 from __future__ import annotations
 
+import html as html_lib
 import os
 import re
-import html as html_lib
 
 import httpx
 import pytest

@@ -1,21 +1,20 @@
 # Copyright (c) 2026 John Carter. All rights reserved.
 """
-Hive CDK Stack — defines all AWS infrastructure.
+AgentCore Starter CDK Stack — defines all AWS infrastructure.
 
 Resources:
   - DynamoDB table (single-table design) with GSIs and TTL
-  - Lambda function for the MCP server (FastMCP + Mangum)
-  - Lambda function for the management API (FastAPI + Mangum)
-  - Function URLs for both Lambdas (auth=NONE, TLS enforced)
-  - IAM roles scoped to DynamoDB table and SSM access
-  - SSM Parameter for JWT secret
+  - Lambda function for the API (FastAPI + Mangum)
+  - Function URL for the Lambda (auth=NONE, TLS enforced)
+  - IAM role scoped to DynamoDB table and SSM access
+  - SSM Parameters for secrets
   - S3 bucket + CloudFront distribution for the React management UI
   - GitHub Actions OIDC deploy role (one per environment)
 
 Multi-environment usage:
-  cdk deploy HiveStack         -c env=prod   # production
-  cdk deploy HiveStack-dev     -c env=dev    # development
-  cdk deploy HiveStack-staging -c env=staging
+  cdk deploy AgentCoreStarterStack         -c env=prod   # production
+  cdk deploy AgentCoreStarterStack-dev     -c env=dev    # development
+  cdk deploy AgentCoreStarterStack-staging -c env=staging
 """
 
 from __future__ import annotations
@@ -36,20 +35,19 @@ from aws_cdk import aws_route53 as route53
 from aws_cdk import aws_route53_targets as route53_targets
 from aws_cdk import aws_s3 as s3
 from aws_cdk import aws_s3_deployment as s3deploy
-from aws_cdk import aws_s3vectors as s3vectors
 from aws_cdk import aws_sns as sns
 from aws_cdk import aws_ssm as ssm
 from aws_cdk import aws_wafv2 as wafv2
 from cdk_nag import NagPackSuppression, NagSuppressions
 from constructs import Construct
 
-GITHUB_REPO = "warlordofmars/hive"
+GITHUB_REPO = "warlordofmars/agentcore-starter"
 
 
 HOSTED_ZONE_NAME = "warlordofmars.net"
 
 
-class HiveStack(cdk.Stack):
+class AgentCoreStarterStack(cdk.Stack):
     def __init__(
         self,
         scope: Construct,
@@ -61,7 +59,7 @@ class HiveStack(cdk.Stack):
         super().__init__(scope, construct_id, **kwargs)
 
         # Apply cost-allocation tags to every resource in the stack.
-        cdk.Tags.of(self).add("project", "hive")
+        cdk.Tags.of(self).add("project", "agentcore-starter")
         cdk.Tags.of(self).add("env", env_name)
 
         is_prod = env_name == "prod"
@@ -80,12 +78,12 @@ class HiveStack(cdk.Stack):
         # DynamoDB single table
         # ----------------------------------------------------------------
         # Table name is derived from env_name so arbitrary envs never conflict.
-        # Prod keeps "hive" for backward compatibility with existing data.
-        table_name = "hive" if is_prod else f"hive-{env_name}"
+
+        table_name = "agentcore-starter" if is_prod else f"agentcore-starter-{env_name}"
 
         table = dynamodb.Table(
             self,
-            "HiveTable",
+            "StarterTable",
             table_name=table_name,
             partition_key=dynamodb.Attribute(name="PK", type=dynamodb.AttributeType.STRING),
             sort_key=dynamodb.Attribute(name="SK", type=dynamodb.AttributeType.STRING),
@@ -134,7 +132,9 @@ class HiveStack(cdk.Stack):
         # All parameters use per-environment paths to prevent secret sharing.
         # Prod keeps legacy paths (no env suffix) for backward compatibility.
         def _ssm_path(name: str) -> str:
-            return f"/hive/{name}" if is_prod else f"/hive/{env_name}/{name}"
+            return (
+                f"/agentcore-starter/{name}" if is_prod else f"/agentcore-starter/{env_name}/{name}"
+            )
 
         ssm_param_name = _ssm_path("jwt-secret")
 
@@ -143,7 +143,7 @@ class HiveStack(cdk.Stack):
             "JwtSecret",
             parameter_name=ssm_param_name,
             string_value="CHANGE_ME_ON_FIRST_DEPLOY",
-            description=f"Hive JWT signing secret ({env_name}) — rotate after first deploy",
+            description=f"AgentCore Starter JWT signing secret ({env_name}) — rotate after first deploy",
             tier=ssm.ParameterTier.STANDARD,
         )
         # Always retain the JWT secret — losing it invalidates all issued tokens.
@@ -174,7 +174,7 @@ class HiveStack(cdk.Stack):
             "AllowedEmails",
             parameter_name=_ssm_path("allowed-emails"),
             string_value="[]",
-            description=f"JSON array of Google email addresses allowed to access Hive ({env_name}); empty = allow all",
+            description=f"JSON array of Google email addresses allowed to access AgentCore Starter ({env_name}); empty = allow all",
             tier=ssm.ParameterTier.STANDARD,
         )
         allowed_emails_param.apply_removal_policy(cdk.RemovalPolicy.RETAIN)
@@ -219,7 +219,7 @@ class HiveStack(cdk.Stack):
                             # Export only runtime deps — exclude dev and infra (CDK) groups
                             "UV_CACHE_DIR=/tmp/uv-cache uv export --no-hashes --no-group dev --no-group infra -o /tmp/requirements.txt",
                             "pip install -r /tmp/requirements.txt -t /asset-output --quiet --no-cache-dir",
-                            "cp -r src/hive /asset-output/hive",
+                            "cp -r src/starter /asset-output/starter",
                         ]
                     ),
                 ],
@@ -227,7 +227,7 @@ class HiveStack(cdk.Stack):
         )
 
         # JWT issuer URL embedded in tokens — must be unique per environment.
-        issuer_host = "hive" if is_prod else f"hive-{env_name}"
+        issuer_host = "agentcore-starter" if is_prod else f"agentcore-starter-{env_name}"
         custom_domain = f"{issuer_host}.{HOSTED_ZONE_NAME}"
 
         # ----------------------------------------------------------------
@@ -251,156 +251,32 @@ class HiveStack(cdk.Stack):
             validation=acm.CertificateValidation.from_dns(hosted_zone),
         )
 
-        # S3 Vectors bucket — one vector index per OAuth client, lazy-created
-        vectors_bucket_name = "hive-vectors" if is_prod else f"hive-vectors-{env_name}"
-        s3vectors.CfnVectorBucket(
-            self,
-            "VectorsBucket",
-            vector_bucket_name=vectors_bucket_name,
-        )
-
-        # Memory blobs bucket — stores text values over 100 KB and
-        # (post-#499) binary memory content. SSE-S3 is sufficient
-        # given the bucket is tenant-partitioned by the object-key
-        # prefix (``{owner}/{memory_id}``); the IAM policy on each
-        # Lambda role is what keeps cross-tenant access off the
-        # table. Block-public-access is on. Versioning is off —
-        # Hive's own version-history (VERSION items in DynamoDB)
-        # already covers that need, and S3 versioning would double
-        # the storage bill. In non-prod we set RemovalPolicy=DESTROY
-        # + auto-delete so ephemeral dev stacks tear down cleanly;
-        # prod gets RETAIN to prevent accidental data loss.
-        blobs_bucket_name = "hive-memory-blobs" if is_prod else f"hive-memory-blobs-{env_name}"
-        blobs_bucket = s3.Bucket(
-            self,
-            "MemoryBlobsBucket",
-            bucket_name=blobs_bucket_name,
-            encryption=s3.BucketEncryption.S3_MANAGED,
-            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
-            versioned=False,
-            enforce_ssl=True,
-            removal_policy=(cdk.RemovalPolicy.RETAIN if is_prod else cdk.RemovalPolicy.DESTROY),
-            auto_delete_objects=not is_prod,
-        )
-        # Safety-net lifecycle rule: abort abandoned multipart upload
-        # sessions after 1 day so in-progress parts don't accumulate
-        # storage quota. Full orphan detection (complete objects with
-        # no DynamoDB counterpart) requires a scheduled cross-check
-        # Lambda — tracked separately.
-        blobs_bucket.add_lifecycle_rule(
-            id="AbortIncompleteUploads",
-            abort_incomplete_multipart_upload_after=cdk.Duration.days(1),
-            enabled=True,
-        )
-
         app_version = os.environ.get("APP_VERSION", "dev")
         common_env = {
-            "HIVE_TABLE_NAME": table.table_name,
-            "HIVE_VECTORS_BUCKET": vectors_bucket_name,
-            "HIVE_BLOBS_BUCKET": blobs_bucket_name,
+            "STARTER_TABLE_NAME": table.table_name,
             # Custom domain is the canonical issuer URL for all environments.
-            "HIVE_ISSUER": f"https://{custom_domain}",
+            "STARTER_ISSUER": f"https://{custom_domain}",
             # Tell both Lambdas which SSM parameter holds the JWT secret.
-            "HIVE_JWT_SECRET_PARAM": ssm_param_name,
+            "STARTER_JWT_SECRET_PARAM": ssm_param_name,
             # Google OAuth 2.0 SSM parameter paths
             "GOOGLE_CLIENT_ID_PARAM": google_client_id_param.parameter_name,
             "GOOGLE_CLIENT_SECRET_PARAM": google_client_secret_param.parameter_name,
             "ALLOWED_EMAILS_PARAM": allowed_emails_param.parameter_name,
-            "HIVE_ORIGIN_VERIFY_PARAM": origin_verify_param.parameter_name,
+            "STARTER_ORIGIN_VERIFY_PARAM": origin_verify_param.parameter_name,
             # APP_VERSION is injected at deploy time via the APP_VERSION env var.
             # Falls back to "dev" for local synth/deploy without a version set.
             "APP_VERSION": app_version,
             # Used by EMF metrics as the "Environment" dimension.
-            "HIVE_ENV": env_name,
+            "STARTER_ENV": env_name,
         }
 
         # In non-prod environments, bypass Google OAuth so automated e2e tests
         # can complete the PKCE flow without a real Google account.
         if not is_prod:
-            common_env["HIVE_BYPASS_GOOGLE_AUTH"] = "1"
+            common_env["STARTER_BYPASS_GOOGLE_AUTH"] = "1"
 
         # Tag every resource with the deployed version for operational visibility.
         cdk.Tags.of(self).add("version", app_version)
-
-        # ----------------------------------------------------------------
-        # MCP Lambda
-        # ----------------------------------------------------------------
-        mcp_role = iam.Role(
-            self,
-            "McpLambdaRole",
-            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
-            managed_policies=[
-                iam.ManagedPolicy.from_aws_managed_policy_name(
-                    "service-role/AWSLambdaBasicExecutionRole"
-                )
-            ],
-        )
-        table.grant_read_write_data(mcp_role)
-        jwt_secret_param.grant_read(mcp_role)
-        google_client_id_param.grant_read(mcp_role)
-        google_client_secret_param.grant_read(mcp_role)
-        allowed_emails_param.grant_read(mcp_role)
-        origin_verify_param.grant_read(mcp_role)
-        # Memory blobs — MCP Lambda reads, writes, and (post-#502)
-        # deletes objects on forget. Scoped to the bucket via CDK's
-        # grant; no cross-bucket access is possible from this role.
-        blobs_bucket.grant_read_write(mcp_role)
-        blobs_bucket.grant_delete(mcp_role)
-        # S3 Vectors + Bedrock Titan Embeddings V2 for MCP Lambda
-        mcp_role.add_to_policy(
-            iam.PolicyStatement(
-                actions=[
-                    "s3vectors:CreateIndex",
-                    "s3vectors:GetIndex",
-                    "s3vectors:PutVectors",
-                    "s3vectors:QueryVectors",
-                    "s3vectors:DeleteVectors",
-                ],
-                resources=[
-                    f"arn:aws:s3vectors:{self.region}:{self.account}:bucket/{vectors_bucket_name}",
-                    f"arn:aws:s3vectors:{self.region}:{self.account}:bucket/{vectors_bucket_name}/index/*",
-                ],
-            )
-        )
-        mcp_role.add_to_policy(
-            iam.PolicyStatement(
-                actions=["bedrock:InvokeModel"],
-                resources=[
-                    f"arn:aws:bedrock:{self.region}::foundation-model/amazon.titan-embed-text-v2:0"
-                ],
-            )
-        )
-
-        mcp_fn = lambda_.Function(
-            self,
-            "McpFunction",
-            runtime=lambda_.Runtime.PYTHON_3_12,
-            handler="hive.server.lambda_handler",
-            code=lambda_code,
-            role=mcp_role,
-            environment=common_env,
-            memory_size=512,
-            timeout=cdk.Duration.seconds(30),
-            description=f"Hive MCP server (FastMCP) [{env_name}]",
-            tracing=lambda_.Tracing.ACTIVE,
-        )
-
-        mcp_alias = lambda_.Alias(
-            self,
-            "McpAlias",
-            alias_name="live",
-            version=mcp_fn.current_version,
-            provisioned_concurrent_executions=1 if is_prod else 0,
-        )
-
-        mcp_url = mcp_alias.add_function_url(
-            auth_type=lambda_.FunctionUrlAuthType.NONE,
-            cors=lambda_.FunctionUrlCorsOptions(
-                allowed_origins=["*"],
-                allowed_methods=[lambda_.HttpMethod.ALL],
-                allowed_headers=["*"],
-            ),
-        )
 
         # ----------------------------------------------------------------
         # Management API Lambda
@@ -421,10 +297,6 @@ class HiveStack(cdk.Stack):
         google_client_secret_param.grant_read(api_role)
         allowed_emails_param.grant_read(api_role)
         origin_verify_param.grant_read(api_role)
-        # Memory blobs — API Lambda needs read/write for the
-        # management UI's memory CRUD + delete on forget (#502).
-        blobs_bucket.grant_read_write(api_role)
-        blobs_bucket.grant_delete(api_role)
         api_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["cloudwatch:GetMetricData", "cloudwatch:DescribeAlarms"],
@@ -437,58 +309,23 @@ class HiveStack(cdk.Stack):
                 resources=["*"],
             )
         )
-        # CloudWatch Logs permission is scoped after mcp_fn/api_fn are defined below.
-        # S3 Vectors + Bedrock Titan Embeddings V2 for API Lambda
-        api_role.add_to_policy(
-            iam.PolicyStatement(
-                actions=[
-                    "s3vectors:CreateIndex",
-                    "s3vectors:GetIndex",
-                    "s3vectors:PutVectors",
-                    "s3vectors:QueryVectors",
-                    "s3vectors:DeleteVectors",
-                ],
-                resources=[
-                    f"arn:aws:s3vectors:{self.region}:{self.account}:bucket/{vectors_bucket_name}",
-                    f"arn:aws:s3vectors:{self.region}:{self.account}:bucket/{vectors_bucket_name}/index/*",
-                ],
-            )
-        )
-        api_role.add_to_policy(
-            iam.PolicyStatement(
-                actions=["bedrock:InvokeModel"],
-                resources=[
-                    f"arn:aws:bedrock:{self.region}::foundation-model/amazon.titan-embed-text-v2:0"
-                ],
-            )
-        )
 
         api_fn = lambda_.Function(
             self,
             "ApiFunction",
             runtime=lambda_.Runtime.PYTHON_3_12,
-            handler="hive.api.main.lambda_handler",
+            handler="starter.api.main.lambda_handler",
             code=lambda_code,
             role=api_role,
             environment=common_env,
             memory_size=512,
             timeout=cdk.Duration.seconds(30),
-            description=f"Hive management API (FastAPI) [{env_name}]",
+            description=f"AgentCore Starter management API (FastAPI) [{env_name}]",
             tracing=lambda_.Tracing.ACTIVE,
         )
 
-        # Pass the MCP log group name so the API Lambda can query it.
-        # mcp_fn.function_name is safe here (mcp_fn has no dependency on api_fn).
-        # We do NOT pass the API log group name via CFN token — that would be a
-        # self-reference (api_fn → api_fn) and cause a circular dependency.
-        # Instead, logs.py derives it at runtime from AWS_LAMBDA_FUNCTION_NAME,
-        # which the Lambda runtime injects automatically.
-        api_fn.add_environment("HIVE_MCP_LOG_GROUP", f"/aws/lambda/{mcp_fn.function_name}")
-
         # CDK names functions "{StackId}-{LogicalId}-{RandomSuffix}".
-        # The stack construct_id is the first segment, so "/aws/lambda/HiveStack*"
-        # matches all Lambdas in this stack without creating a token dependency.
-        _stack_prefix = construct_id  # e.g. "HiveStack-dev"
+        # construct_id is the first segment, e.g. "AgentCoreStarterStack-dev".
         api_role.add_to_policy(
             iam.PolicyStatement(
                 actions=[
@@ -496,8 +333,8 @@ class HiveStack(cdk.Stack):
                     "logs:DescribeLogGroups",
                 ],
                 resources=[
-                    f"arn:aws:logs:{self.region}:{self.account}:log-group:/aws/lambda/{_stack_prefix}-*",
-                    f"arn:aws:logs:{self.region}:{self.account}:log-group:/aws/lambda/{_stack_prefix}-*:*",
+                    f"arn:aws:logs:{self.region}:{self.account}:log-group:/aws/lambda/{construct_id}-*",
+                    f"arn:aws:logs:{self.region}:{self.account}:log-group:/aws/lambda/{construct_id}-*:*",
                 ],
             )
         )
@@ -525,7 +362,6 @@ class HiveStack(cdk.Stack):
 
         # API origin — strip "https://" prefix and trailing "/" from the function URL
         api_origin_domain = cdk.Fn.select(2, cdk.Fn.split("/", api_url.url))
-        mcp_origin_domain = cdk.Fn.select(2, cdk.Fn.split("/", mcp_url.url))
 
         # CloudFront injects X-Origin-Verify on prod so Lambda can reject direct
         # Function URL access. The header value is resolved from SSM at deploy
@@ -549,12 +385,6 @@ class HiveStack(cdk.Stack):
             origin_ssl_protocols=[cloudfront.OriginSslPolicy.TLS_V1_2],
             custom_headers=origin_verify_header,
         )
-        mcp_cf_origin = origins.HttpOrigin(
-            mcp_origin_domain,
-            protocol_policy=cloudfront.OriginProtocolPolicy.HTTPS_ONLY,
-            origin_ssl_protocols=[cloudfront.OriginSslPolicy.TLS_V1_2],
-            custom_headers=origin_verify_header,
-        )
 
         # ----------------------------------------------------------------
         # CloudFront response headers — security hardening
@@ -570,7 +400,7 @@ class HiveStack(cdk.Stack):
             "default-src 'self'; "
             "script-src 'self' https://www.googletagmanager.com; "
             "connect-src 'self' https://www.google-analytics.com "
-            "https://hive.warlordofmars.net; "
+            "https://agentcore-starter.example.com; "
             "img-src 'self' data: https://www.google-analytics.com; "
             "style-src 'self' 'unsafe-inline'; "
             "frame-ancestors 'none'; "
@@ -581,9 +411,9 @@ class HiveStack(cdk.Stack):
         )
         security_headers_policy = cloudfront.ResponseHeadersPolicy(
             self,
-            "HiveSecurityHeadersPolicy",
-            response_headers_policy_name=f"hive-security-headers-{env_name}",
-            comment="Hive security response headers (HSTS, CSP-RO, frame/referrer/permissions)",
+            "StarterSecurityHeadersPolicy",
+            response_headers_policy_name=f"agentcore-starter-security-headers-{env_name}",
+            comment="AgentCore Starter security response headers (HSTS, CSP-RO, frame/referrer/permissions)",
             security_headers_behavior=cloudfront.ResponseSecurityHeadersBehavior(
                 strict_transport_security=cloudfront.ResponseHeadersStrictTransportSecurity(
                     access_control_max_age=cdk.Duration.seconds(31536000),
@@ -627,14 +457,6 @@ class HiveStack(cdk.Stack):
             allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
             response_headers_policy=security_headers_policy,
         )
-        mcp_behavior = cloudfront.BehaviorOptions(
-            origin=mcp_cf_origin,
-            viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-            cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
-            origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
-            allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
-            response_headers_policy=security_headers_policy,
-        )
 
         # ----------------------------------------------------------------
         # WAF WebACL (all environments)
@@ -642,7 +464,7 @@ class HiveStack(cdk.Stack):
         waf_log_group = logs.LogGroup(
             self,
             "WafLogGroup",
-            log_group_name=f"aws-waf-logs-hive-{env_name}",
+            log_group_name=f"aws-waf-logs-agentcore-starter-{env_name}",
             retention=logs.RetentionDays.ONE_MONTH,
             removal_policy=cdk.RemovalPolicy.DESTROY,
         )
@@ -662,12 +484,12 @@ class HiveStack(cdk.Stack):
         web_acl = wafv2.CfnWebACL(
             self,
             "WebAcl",
-            name=f"hive-{env_name}",
+            name=f"agentcore-starter-{env_name}",
             scope="CLOUDFRONT",
             default_action=wafv2.CfnWebACL.DefaultActionProperty(allow={}),
             visibility_config=wafv2.CfnWebACL.VisibilityConfigProperty(
                 cloud_watch_metrics_enabled=True,
-                metric_name=f"hive-{env_name}-waf",
+                metric_name=f"agentcore-starter-{env_name}-waf",
                 sampled_requests_enabled=True,
             ),
             rules=[
@@ -807,7 +629,7 @@ function handler(event) {
         return {
             statusCode: 302,
             statusDescription: 'Found',
-            headers: { location: { value: '/docs/getting-started/what-is-hive' } }
+            headers: { location: { value: '/docs/getting-started/' } }
         };
     }
 
@@ -871,7 +693,6 @@ function handler(event) {
                     origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
                     response_headers_policy=security_headers_policy,
                 ),
-                "/mcp*": mcp_behavior,
                 "/docs*": docs_behavior,
             },
             domain_names=[custom_domain],
@@ -983,19 +804,12 @@ function handler(event) {
             managed_policies=[
                 iam.ManagedPolicy.from_aws_managed_policy_name("AdministratorAccess")
             ],
-            description=f"GitHub Actions OIDC deploy role for Hive ({env_name})",
+            description=f"GitHub Actions OIDC deploy role for AgentCore Starter ({env_name})",
         )
 
         # ----------------------------------------------------------------
         # CloudWatch log groups — 30-day retention + saved Insights queries
         # ----------------------------------------------------------------
-        mcp_log_group = logs.LogGroup(
-            self,
-            "McpLogGroup",
-            log_group_name=f"/aws/lambda/{mcp_fn.function_name}",
-            retention=logs.RetentionDays.ONE_MONTH,
-            removal_policy=data_removal,
-        )
 
         api_log_group = logs.LogGroup(
             self,
@@ -1009,41 +823,30 @@ function handler(event) {
         logs.QueryDefinition(
             self,
             "QueryErrors",
-            query_definition_name=f"Hive/{env_name}/errors",
+            query_definition_name=f"AgentCoreStarter/{env_name}/errors",
             query_string=logs.QueryString(
                 fields=["@timestamp", "client_id", "tool", "error_message"],
                 filter_statements=['level = "ERROR"'],
                 sort="@timestamp desc",
             ),
-            log_groups=[mcp_log_group, api_log_group],
-        )
-
-        logs.QueryDefinition(
-            self,
-            "QueryToolLatency",
-            query_definition_name=f"Hive/{env_name}/tool-latency-p99",
-            query_string=logs.QueryString(
-                stats_statements=["pct(duration_ms, 99) as p99 by tool"],
-                sort="p99 desc",
-            ),
-            log_groups=[mcp_log_group],
+            log_groups=[api_log_group],
         )
 
         logs.QueryDefinition(
             self,
             "QueryTopClients",
-            query_definition_name=f"Hive/{env_name}/top-clients",
+            query_definition_name=f"AgentCoreStarter/{env_name}/top-clients",
             query_string=logs.QueryString(
                 stats_statements=["count(*) as requests by client_id"],
                 sort="requests desc",
             ),
-            log_groups=[mcp_log_group, api_log_group],
+            log_groups=[api_log_group],
         )
 
         logs.QueryDefinition(
             self,
             "QueryApiLatency",
-            query_definition_name=f"Hive/{env_name}/api-latency",
+            query_definition_name=f"AgentCoreStarter/{env_name}/api-latency",
             query_string=logs.QueryString(
                 fields=["@timestamp", "method", "path", "status_code", "duration_ms"],
                 filter_statements=["ispresent(method)"],
@@ -1056,7 +859,7 @@ function handler(event) {
         # ----------------------------------------------------------------
         # CloudWatch dashboard + alarms
         # ----------------------------------------------------------------
-        dashboard_name = "Hive" if is_prod else f"Hive-{env_name}"
+        dashboard_name = "AgentCoreStarter" if is_prod else f"AgentCoreStarter-{env_name}"
 
         # SLO targets and derived error budgets
         # MCP availability: 99.5% success → 0.5% error budget
@@ -1066,12 +869,12 @@ function handler(event) {
         _API_ERROR_BUDGET_PCT = 1.0
 
         # SNS topic for alarm notifications — prod only gets an email subscription
-        # (subscription address lives in SSM /hive/{env}/alarm-email; set it
+        # (subscription address lives in SSM /agentcore-starter/{env}/alarm-email; set it
         # post-deploy, then run `aws sns subscribe --protocol email ...`).
         alarm_topic = sns.Topic(
             self,
             "AlarmTopic",
-            display_name=f"Hive alarms ({env_name})",
+            display_name=f"AgentCoreStarter alarms ({env_name})",
         )
 
         def _notify(alarm: cw.Alarm) -> cw.Alarm:
@@ -1099,40 +902,24 @@ function handler(event) {
             alarm = cw.Alarm(
                 self,
                 construct_id,
-                alarm_name=f"Hive-{env_name}-{construct_id.removesuffix('Alarm')}",
+                alarm_name=f"AgentCoreStarter-{env_name}-{construct_id.removesuffix('Alarm')}",
                 metric=error_rate,
                 threshold=5,
                 evaluation_periods=2,
                 datapoints_to_alarm=2,
                 comparison_operator=cw.ComparisonOperator.GREATER_THAN_THRESHOLD,
                 treat_missing_data=cw.TreatMissingData.NOT_BREACHING,
-                alarm_description=f"Hive {label} error rate > 5% ({env_name})",
+                alarm_description=f"AgentCoreStarter {label} error rate > 5% ({env_name})",
             )
             return _notify(alarm)
 
-        mcp_error_alarm = _error_rate_alarm("McpErrorRateAlarm", mcp_fn, "MCP")
         api_error_alarm = _error_rate_alarm("ApiErrorRateAlarm", api_fn, "API")
-
-        # MCP P99 duration alarm: > 25s (out of 30s timeout)
-        mcp_p99_alarm = cw.Alarm(
-            self,
-            "McpP99DurationAlarm",
-            alarm_name=f"Hive-{env_name}-McpP99Duration",
-            metric=mcp_fn.metric_duration(period=cdk.Duration.minutes(5), statistic="p99"),
-            threshold=25_000,  # milliseconds
-            evaluation_periods=2,
-            datapoints_to_alarm=2,
-            comparison_operator=cw.ComparisonOperator.GREATER_THAN_THRESHOLD,
-            treat_missing_data=cw.TreatMissingData.NOT_BREACHING,
-            alarm_description=f"Hive MCP P99 duration > 25s ({env_name})",
-        )
-        _notify(mcp_p99_alarm)
 
         # DynamoDB throttle alarm: any throttled requests over 5 min
         ddb_throttle_alarm = cw.Alarm(
             self,
             "DdbThrottleAlarm",
-            alarm_name=f"Hive-{env_name}-DdbThrottles",
+            alarm_name=f"AgentCoreStarter-{env_name}-DdbThrottles",
             metric=cw.Metric(
                 namespace="AWS/DynamoDB",
                 metric_name="ThrottledRequests",
@@ -1144,7 +931,7 @@ function handler(event) {
             evaluation_periods=1,
             comparison_operator=cw.ComparisonOperator.GREATER_THAN_THRESHOLD,
             treat_missing_data=cw.TreatMissingData.NOT_BREACHING,
-            alarm_description=f"Hive DynamoDB throttled requests > 0 ({env_name})",
+            alarm_description=f"AgentCoreStarter DynamoDB throttled requests > 0 ({env_name})",
         )
         _notify(ddb_throttle_alarm)
 
@@ -1152,7 +939,7 @@ function handler(event) {
         cf_5xx_alarm = cw.Alarm(
             self,
             "CloudFront5xxAlarm",
-            alarm_name=f"Hive-{env_name}-CloudFront5xx",
+            alarm_name=f"AgentCoreStarter-{env_name}-CloudFront5xx",
             metric=cw.Metric(
                 namespace="AWS/CloudFront",
                 metric_name="5xxErrorRate",
@@ -1167,7 +954,7 @@ function handler(event) {
             evaluation_periods=1,
             comparison_operator=cw.ComparisonOperator.GREATER_THAN_THRESHOLD,
             treat_missing_data=cw.TreatMissingData.NOT_BREACHING,
-            alarm_description=f"Hive CloudFront 5xx rate > 1% ({env_name})",
+            alarm_description=f"AgentCoreStarter CloudFront 5xx rate > 1% ({env_name})",
         )
         _notify(cf_5xx_alarm)
 
@@ -1175,9 +962,9 @@ function handler(event) {
         tool_errors_alarm = cw.Alarm(
             self,
             "ToolErrorsAlarm",
-            alarm_name=f"Hive-{env_name}-ToolErrors",
+            alarm_name=f"AgentCoreStarter-{env_name}-ToolErrors",
             metric=cw.Metric(
-                namespace="Hive",
+                namespace="AgentCoreStarter",
                 metric_name="ToolErrors",
                 dimensions_map={"Environment": env_name},
                 period=cdk.Duration.minutes(5),
@@ -1188,16 +975,16 @@ function handler(event) {
             datapoints_to_alarm=2,
             comparison_operator=cw.ComparisonOperator.GREATER_THAN_THRESHOLD,
             treat_missing_data=cw.TreatMissingData.NOT_BREACHING,
-            alarm_description=f"Hive tool errors > 10 in 5 min ({env_name})",
+            alarm_description=f"AgentCoreStarter tool errors > 10 in 5 min ({env_name})",
         )
         _notify(tool_errors_alarm)
 
         storage_latency_alarm = cw.Alarm(
             self,
             "StorageLatencyAlarm",
-            alarm_name=f"Hive-{env_name}-StorageLatencyHigh",
+            alarm_name=f"AgentCoreStarter-{env_name}-StorageLatencyHigh",
             metric=cw.Metric(
-                namespace="Hive",
+                namespace="AgentCoreStarter",
                 metric_name="StorageLatencyMs",
                 dimensions_map={"Environment": env_name},
                 period=cdk.Duration.minutes(5),
@@ -1208,7 +995,7 @@ function handler(event) {
             datapoints_to_alarm=2,
             comparison_operator=cw.ComparisonOperator.GREATER_THAN_THRESHOLD,
             treat_missing_data=cw.TreatMissingData.NOT_BREACHING,
-            alarm_description=f"Hive storage latency p99 > 2000ms ({env_name})",
+            alarm_description=f"AgentCoreStarter storage latency p99 > 2000ms ({env_name})",
         )
         _notify(storage_latency_alarm)
 
@@ -1218,17 +1005,16 @@ function handler(event) {
             alarm = cw.Alarm(
                 self,
                 construct_id,
-                alarm_name=f"Hive-{env_name}-{construct_id.removesuffix('Alarm')}",
+                alarm_name=f"AgentCoreStarter-{env_name}-{construct_id.removesuffix('Alarm')}",
                 metric=fn.metric_throttles(period=cdk.Duration.minutes(5), statistic="Sum"),
                 threshold=0,
                 evaluation_periods=1,
                 comparison_operator=cw.ComparisonOperator.GREATER_THAN_THRESHOLD,
                 treat_missing_data=cw.TreatMissingData.NOT_BREACHING,
-                alarm_description=f"Hive {label} Lambda throttles > 0 ({env_name})",
+                alarm_description=f"AgentCoreStarter {label} Lambda throttles > 0 ({env_name})",
             )
             return _notify(alarm)
 
-        _throttle_alarm("McpThrottlesAlarm", mcp_fn, "MCP")
         _throttle_alarm("ApiThrottlesAlarm", api_fn, "API")
 
         # DynamoDB user errors — 4xx-class failures from the SDK (validation,
@@ -1238,7 +1024,7 @@ function handler(event) {
         ddb_user_errors_alarm = cw.Alarm(
             self,
             "DdbUserErrorsAlarm",
-            alarm_name=f"Hive-{env_name}-DdbUserErrors",
+            alarm_name=f"AgentCoreStarter-{env_name}-DdbUserErrors",
             metric=cw.Metric(
                 namespace="AWS/DynamoDB",
                 metric_name="UserErrors",
@@ -1250,7 +1036,7 @@ function handler(event) {
             evaluation_periods=1,
             comparison_operator=cw.ComparisonOperator.GREATER_THAN_THRESHOLD,
             treat_missing_data=cw.TreatMissingData.NOT_BREACHING,
-            alarm_description=f"Hive DynamoDB user errors > 10 in 5 min ({env_name})",
+            alarm_description=f"AgentCoreStarter DynamoDB user errors > 10 in 5 min ({env_name})",
         )
         _notify(ddb_user_errors_alarm)
 
@@ -1261,9 +1047,9 @@ function handler(event) {
         auth_failures_alarm = cw.Alarm(
             self,
             "AuthFailuresAlarm",
-            alarm_name=f"Hive-{env_name}-AuthFailures",
+            alarm_name=f"AgentCoreStarter-{env_name}-AuthFailures",
             metric=cw.Metric(
-                namespace="Hive",
+                namespace="AgentCoreStarter",
                 metric_name="TokenValidationFailures",
                 dimensions_map={"Environment": env_name},
                 period=cdk.Duration.minutes(5),
@@ -1274,7 +1060,7 @@ function handler(event) {
             datapoints_to_alarm=2,
             comparison_operator=cw.ComparisonOperator.GREATER_THAN_THRESHOLD,
             treat_missing_data=cw.TreatMissingData.NOT_BREACHING,
-            alarm_description=f"Hive auth failures > 10 in 5 min ({env_name})",
+            alarm_description=f"AgentCoreStarter auth failures > 10 in 5 min ({env_name})",
         )
         _notify(auth_failures_alarm)
 
@@ -1306,7 +1092,7 @@ function handler(event) {
             alarm = cw.Alarm(
                 self,
                 construct_id,
-                alarm_name=f"Hive-{env_name}-{construct_id.removesuffix('Alarm')}",
+                alarm_name=f"AgentCoreStarter-{env_name}-{construct_id.removesuffix('Alarm')}",
                 metric=error_rate_pct,
                 threshold=threshold,
                 evaluation_periods=1,
@@ -1314,81 +1100,28 @@ function handler(event) {
                 comparison_operator=cw.ComparisonOperator.GREATER_THAN_THRESHOLD,
                 treat_missing_data=cw.TreatMissingData.NOT_BREACHING,
                 alarm_description=(
-                    f"Hive {label} SLO {burn_type}-burn: error rate > {threshold}% "
+                    f"AgentCoreStarter {label} SLO {burn_type}-burn: error rate > {threshold}% "
                     f"over {window_minutes}m (budget={error_budget_pct}% × {burn_multiplier}×) ({env_name})"
                 ),
             )
             return _notify(alarm)
 
-        mcp_fast_burn_alarm = _burn_rate_alarm(
-            "McpFastBurnAlarm", mcp_fn, "MCP", _MCP_ERROR_BUDGET_PCT, 5, 60
-        )
-        mcp_slow_burn_alarm = _burn_rate_alarm(
-            "McpSlowBurnAlarm", mcp_fn, "MCP", _MCP_ERROR_BUDGET_PCT, 2, 360
-        )
-        api_fast_burn_alarm = _burn_rate_alarm(
-            "ApiFastBurnAlarm", api_fn, "API", _API_ERROR_BUDGET_PCT, 5, 60
-        )
-        api_slow_burn_alarm = _burn_rate_alarm(
-            "ApiSlowBurnAlarm", api_fn, "API", _API_ERROR_BUDGET_PCT, 2, 360
-        )
-
-        # MCP p95 latency SLO alarm (1-hour window, p95 > 2000ms)
-        mcp_p95_latency_alarm = cw.Alarm(
-            self,
-            "McpP95LatencyAlarm",
-            alarm_name=f"Hive-{env_name}-McpP95Latency",
-            metric=mcp_fn.metric_duration(period=cdk.Duration.minutes(60), statistic="p95"),
-            threshold=2000,
-            evaluation_periods=1,
-            datapoints_to_alarm=1,
-            comparison_operator=cw.ComparisonOperator.GREATER_THAN_THRESHOLD,
-            treat_missing_data=cw.TreatMissingData.NOT_BREACHING,
-            alarm_description=f"Hive MCP p95 latency > 2000ms over 1h (SLO breach) ({env_name})",
-        )
-        _notify(mcp_p95_latency_alarm)
+        _burn_rate_alarm("ApiFastBurnAlarm", api_fn, "API", _API_ERROR_BUDGET_PCT, 5, 60)
+        _burn_rate_alarm("ApiSlowBurnAlarm", api_fn, "API", _API_ERROR_BUDGET_PCT, 2, 360)
 
         # Dashboard
         dashboard = cw.Dashboard(
             self,
-            "HiveDashboard",
+            "StarterDashboard",
             dashboard_name=dashboard_name,
         )
 
         dashboard.add_widgets(
             cw.Row(
                 cw.TextWidget(
-                    markdown=f"# Hive — {env_name}  \nLambda · DynamoDB · CloudFront",
+                    markdown=f"# AgentCore Starter — {env_name}  \nLambda · DynamoDB · CloudFront",
                     width=24,
                     height=1,
-                ),
-            ),
-            # MCP Lambda row
-            cw.Row(
-                cw.TextWidget(markdown="## MCP Lambda", width=24, height=1),
-            ),
-            cw.Row(
-                cw.GraphWidget(
-                    title="MCP Invocations & Errors",
-                    left=[
-                        mcp_fn.metric_invocations(period=cdk.Duration.minutes(5), statistic="Sum")
-                    ],
-                    right=[mcp_fn.metric_errors(period=cdk.Duration.minutes(5), statistic="Sum")],
-                    width=8,
-                ),
-                cw.GraphWidget(
-                    title="MCP Duration (ms)",
-                    left=[
-                        mcp_fn.metric_duration(period=cdk.Duration.minutes(5), statistic="p50"),
-                        mcp_fn.metric_duration(period=cdk.Duration.minutes(5), statistic="p95"),
-                        mcp_fn.metric_duration(period=cdk.Duration.minutes(5), statistic="p99"),
-                    ],
-                    width=8,
-                ),
-                cw.GraphWidget(
-                    title="MCP Throttles",
-                    left=[mcp_fn.metric_throttles(period=cdk.Duration.minutes(5), statistic="Sum")],
-                    width=8,
                 ),
             ),
             # API Lambda row
@@ -1551,16 +1284,12 @@ function handler(event) {
                     width=6,
                 ),
             ),
-            # EMF custom metrics row
-            cw.Row(
-                cw.TextWidget(markdown="## Hive Custom Metrics", width=24, height=1),
-            ),
             cw.Row(
                 cw.GraphWidget(
                     title="Tool Invocations",
                     left=[
                         cw.Metric(
-                            namespace="Hive",
+                            namespace="AgentCoreStarter",
                             metric_name="ToolInvocations",
                             dimensions_map={"Environment": env_name},
                             period=cdk.Duration.minutes(5),
@@ -1573,7 +1302,7 @@ function handler(event) {
                     title="Tool Errors",
                     left=[
                         cw.Metric(
-                            namespace="Hive",
+                            namespace="AgentCoreStarter",
                             metric_name="ToolErrors",
                             dimensions_map={"Environment": env_name},
                             period=cdk.Duration.minutes(5),
@@ -1586,7 +1315,7 @@ function handler(event) {
                     title="Token Validation Failures",
                     left=[
                         cw.Metric(
-                            namespace="Hive",
+                            namespace="AgentCoreStarter",
                             metric_name="TokenValidationFailures",
                             dimensions_map={"Environment": env_name},
                             period=cdk.Duration.minutes(5),
@@ -1601,60 +1330,8 @@ function handler(event) {
                 cw.TextWidget(markdown="## Alarms", width=24, height=1),
             ),
             cw.Row(
-                cw.AlarmWidget(alarm=mcp_error_alarm, title="MCP Error Rate", width=6),
                 cw.AlarmWidget(alarm=api_error_alarm, title="API Error Rate", width=6),
-                cw.AlarmWidget(alarm=mcp_p99_alarm, title="MCP P99 Duration", width=6),
                 cw.AlarmWidget(alarm=ddb_throttle_alarm, title="DDB Throttles", width=6),
-            ),
-            # SLO / Error Budget row
-            cw.Row(
-                cw.TextWidget(
-                    markdown=(
-                        "## SLO Error Budget\n"
-                        f"MCP availability: 99.5% (budget={_MCP_ERROR_BUDGET_PCT}%)  "
-                        f"| API availability: 99.0% (budget={_API_ERROR_BUDGET_PCT}%)  "
-                        "| MCP p95 latency: < 2000 ms (1-hour window)"
-                    ),
-                    width=24,
-                    height=2,
-                ),
-            ),
-            cw.Row(
-                cw.AlarmWidget(alarm=mcp_fast_burn_alarm, title="MCP Fast Burn (5×, 1h)", width=6),
-                cw.AlarmWidget(alarm=mcp_slow_burn_alarm, title="MCP Slow Burn (2×, 6h)", width=6),
-                cw.AlarmWidget(alarm=api_fast_burn_alarm, title="API Fast Burn (5×, 1h)", width=6),
-                cw.AlarmWidget(alarm=api_slow_burn_alarm, title="API Slow Burn (2×, 6h)", width=6),
-            ),
-            cw.Row(
-                cw.AlarmWidget(
-                    alarm=mcp_p95_latency_alarm, title="MCP p95 Latency SLO (1h)", width=8
-                ),
-                cw.GraphWidget(
-                    title="MCP Error Rate % (SLO threshold = 0.5%)",
-                    left=[
-                        cw.MathExpression(
-                            expression="100 * errors / MAX([errors, invocations])",
-                            using_metrics={
-                                "errors": mcp_fn.metric_errors(
-                                    period=cdk.Duration.minutes(60), statistic="Sum"
-                                ),
-                                "invocations": mcp_fn.metric_invocations(
-                                    period=cdk.Duration.minutes(60), statistic="Sum"
-                                ),
-                            },
-                            label="MCP error rate %",
-                            period=cdk.Duration.minutes(60),
-                        )
-                    ],
-                    left_y_axis=cw.YAxisProps(min=0, max=10),
-                    width=8,
-                ),
-                cw.GraphWidget(
-                    title="MCP p95 Latency (SLO threshold = 2000 ms)",
-                    left=[mcp_fn.metric_duration(period=cdk.Duration.minutes(60), statistic="p95")],
-                    left_y_axis=cw.YAxisProps(min=0),
-                    width=8,
-                ),
             ),
         )
 
@@ -1662,24 +1339,9 @@ function handler(event) {
         # Outputs
         # ----------------------------------------------------------------
         cdk.CfnOutput(
-            self, "McpFunctionUrl", value=mcp_url.url, description="MCP Lambda URL (direct)"
-        )
-        cdk.CfnOutput(
             self, "ApiFunctionUrl", value=api_url.url, description="API Lambda URL (direct)"
         )
         cdk.CfnOutput(self, "TableName", value=table.table_name, description="DynamoDB table name")
-        cdk.CfnOutput(
-            self,
-            "HiveUrl",
-            value=f"https://{custom_domain}",
-            description="Hive base URL (custom domain)",
-        )
-        cdk.CfnOutput(
-            self,
-            "McpUrl",
-            value=f"https://{custom_domain}/mcp",
-            description="MCP server URL — use this in MCP client config",
-        )
         cdk.CfnOutput(
             self,
             "UiUrl",
@@ -1756,11 +1418,11 @@ function handler(event) {
                     id="AwsSolutions-CFR3",
                     reason="CloudWatch metrics and alarms provide operational visibility. CloudFront access logging not required for this use case.",
                 ),
-                # Geo-restriction is intentionally not applied — Hive is a
-                # public SaaS product available to users worldwide.
+                # Geo-restriction is intentionally not applied — AgentCore Starter
+                # is available to users worldwide.
                 NagPackSuppression(
                     id="AwsSolutions-CFR1",
-                    reason="Hive is a globally available SaaS product. Geo-restriction is not appropriate.",
+                    reason="AgentCore Starter is a globally available service. Geo-restriction is not appropriate.",
                 ),
                 # Lambda Function URLs are used instead of API Gateway.
                 # They are public by design — the origin-verify secret and
