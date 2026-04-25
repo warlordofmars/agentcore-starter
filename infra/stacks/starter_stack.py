@@ -220,10 +220,25 @@ class AgentCoreStarterStack(cdk.Stack):
                             "UV_CACHE_DIR=/tmp/uv-cache uv export --no-hashes --no-group dev --no-group infra -o /tmp/requirements.txt",
                             "pip install -r /tmp/requirements.txt -t /asset-output --quiet --no-cache-dir",
                             "cp -r src/starter /asset-output/starter",
+                            # run.sh is the AWSLWA entrypoint — must be executable at Lambda root
+                            "cp run.sh /asset-output/run.sh",
+                            "chmod +x /asset-output/run.sh",
                         ]
                     ),
                 ],
             ),
+        )
+
+        # ----------------------------------------------------------------
+        # AWS Lambda Web Adapter layer
+        # Enables streaming responses via Function URL RESPONSE_STREAM mode.
+        # Update the version suffix when a new AWSLWA release is available:
+        # https://github.com/awslabs/aws-lambda-web-adapter/releases
+        # ----------------------------------------------------------------
+        awslwa_layer = lambda_.LayerVersion.from_layer_version_arn(
+            self,
+            "AwsLambdaWebAdapterLayer",
+            f"arn:aws:lambda:{self.region}:753240598075:layer:LambdaAdapterLayerX86:24",
         )
 
         # JWT issuer URL embedded in tokens — must be unique per environment.
@@ -313,7 +328,7 @@ class AgentCoreStarterStack(cdk.Stack):
         )
         api_role.add_to_policy(
             iam.PolicyStatement(
-                actions=["bedrock:InvokeModel"],
+                actions=["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
                 resources=[
                     f"arn:aws:bedrock:{self.region}::foundation-model/anthropic.claude-sonnet-4-6",
                     f"arn:aws:bedrock:{self.region}::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
@@ -325,13 +340,23 @@ class AgentCoreStarterStack(cdk.Stack):
             self,
             "ApiFunction",
             runtime=lambda_.Runtime.PYTHON_3_12,
-            handler="starter.api.main.lambda_handler",
+            # run.sh is the AWSLWA entrypoint — it starts uvicorn on port 8080.
+            # AWSLWA intercepts Lambda invocations and proxies them as HTTP requests.
+            handler="run.sh",
             code=lambda_code,
             role=api_role,
-            environment=common_env,
+            environment={
+                **common_env,
+                # Tell AWSLWA to use response-streaming mode so SSE responses
+                # are streamed through the Function URL without buffering.
+                "AWS_LWA_INVOKE_MODE": "response_stream",
+                # AWSLWA looks for the web server on this port (default 8080).
+                "PORT": "8080",
+            },
+            layers=[awslwa_layer],
             memory_size=512,
             timeout=cdk.Duration.seconds(30),
-            description=f"AgentCore Starter management API (FastAPI) [{env_name}]",
+            description=f"AgentCore Starter management API (FastAPI + AWSLWA) [{env_name}]",
             tracing=lambda_.Tracing.ACTIVE,
         )
 
@@ -352,6 +377,8 @@ class AgentCoreStarterStack(cdk.Stack):
 
         api_url = api_fn.add_function_url(
             auth_type=lambda_.FunctionUrlAuthType.NONE,
+            # RESPONSE_STREAM allows AWSLWA to stream SSE responses without buffering.
+            invoke_mode=lambda_.InvokeMode.RESPONSE_STREAM,
             cors=lambda_.FunctionUrlCorsOptions(
                 allowed_origins=["*"],
                 allowed_methods=[lambda_.HttpMethod.ALL],
