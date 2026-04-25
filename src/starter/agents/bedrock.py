@@ -38,10 +38,7 @@ def converse(request: ConverseRequest) -> ConverseResponse:
         "bedrock-runtime",
         region_name=os.environ.get("AWS_REGION", "us-east-1"),
     )
-    messages = [
-        {"role": m.role, "content": [{"text": m.content}]}
-        for m in request.messages
-    ]
+    messages = [{"role": m.role, "content": [{"text": m.content}]} for m in request.messages]
     kwargs: dict = {
         "modelId": get_model_id(),
         "messages": messages,

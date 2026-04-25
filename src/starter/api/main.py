@@ -17,6 +17,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from starter.api._auth import require_admin  # noqa: F401 — re-exported for route use
+from starter.api.agents import router as agents_router
 from starter.api.csp import router as csp_router
 from starter.auth.mgmt_auth import router as mgmt_auth_router
 from starter.auth.oauth import router as oauth_router
@@ -119,6 +120,9 @@ app.include_router(mgmt_auth_router)
 
 # CSP report receiver — unauthenticated by design
 app.include_router(csp_router, prefix="/api")
+
+# Agent scaffold endpoints (require management JWT)
+app.include_router(agents_router, prefix="/api")
 
 
 @app.get("/health", include_in_schema=False)

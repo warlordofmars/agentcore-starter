@@ -4,8 +4,6 @@ from __future__ import annotations
 import os
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from starter.agents.bedrock import (
     BedrockMessage,
     ConverseRequest,
@@ -39,9 +37,7 @@ def test_converse_success() -> None:
     mock_client.converse.return_value = _mock_converse_response("Hi there!")
 
     with patch("boto3.client", return_value=mock_client):
-        result = converse(
-            ConverseRequest(messages=[BedrockMessage(role="user", content="Hello")])
-        )
+        result = converse(ConverseRequest(messages=[BedrockMessage(role="user", content="Hello")]))
 
     assert isinstance(result, ConverseResponse)
     assert result.content == "Hi there!"
