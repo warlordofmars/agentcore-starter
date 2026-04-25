@@ -464,8 +464,9 @@ If infra files changed, also run: `uv run inv synth`
 
 ## Agent workflows
 
-Two agents handle the structured issue workflows. They live in `.claude/agents/` and load automatically.
+Three agents handle the structured issue workflows. They live in `.claude/agents/` and load automatically.
 
+- **`orchestrator`** — sequences in-flight work across specialist agents: reads live repo state, resolves directives (`status`, `work next <filter>`, `delegate <#N> to <agent>`, `check #N`, `brief #N`, `epic #N`), delegates, and halts on unresolved blockers or tracked template-bootstrap gaps. Design rationale: `docs/adr/0005-orchestrator-agent.md`.
 - **`issue-worker`** — autonomous issue cycle: pick → implement → PR → CI → Copilot review → post-merge pipeline watch. Invoke by asking Claude to work through issues, or with `@"issue-worker (agent)"`.
 - **`design-review`** — processes `status:design-needed` issues interactively: triage, decisions comment, label flip, sub-issue breakdown for epics.
 
