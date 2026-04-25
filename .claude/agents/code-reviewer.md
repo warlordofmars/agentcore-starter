@@ -110,7 +110,7 @@ gh pr diff <PR> -- '*.css' '*.jsx' '*.js' | grep -E '^\+' | grep -vE '^\+\s*//' 
 
 Hardcoded hex, rgb, or hsl colour values in UI files → `FAIL`. All colours must use `var(--token-name)`.
 
-Exception: `docs-site/.vitepress/theme/style.css` may define root-level `var()` variable declarations — verify the flagged lines are variable *definitions* (`:root { --colour: #... }`) not *usages*.
+Exception: `docs-site/.vitepress/theme/style.css` and `ui/src/index.css` may define CSS variable tokens — verify the flagged lines are variable *definitions* (for example `:root { --colour: #... }`, `[data-theme="dark"] { --colour: #... }`, or `@theme { --color-foo: #... }`) not *usages*. New chart palette tokens (`--chart-<name>: #...`) added to `ui/src/index.css`'s root blocks, and Tailwind theme tokens added in its `@theme` block, fall under this exception; consuming them in `*.jsx` / `*.js` must still go through `var(--chart-<name>)` or the appropriate CSS variable reference.
 
 ---
 
