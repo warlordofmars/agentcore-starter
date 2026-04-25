@@ -8,9 +8,18 @@ from starter.agents.bedrock import (
     BedrockMessage,
     ConverseRequest,
     ConverseResponse,
+    _bedrock_client,
     converse,
     get_model_id,
 )
+
+
+def setup_function() -> None:
+    _bedrock_client.cache_clear()
+
+
+def teardown_function() -> None:
+    _bedrock_client.cache_clear()
 
 
 def test_get_model_id_default() -> None:
@@ -22,6 +31,36 @@ def test_get_model_id_default() -> None:
 def test_get_model_id_env_override() -> None:
     with patch.dict(os.environ, {"BEDROCK_MODEL_ID": "anthropic.claude-haiku-4-5-20251001-v1:0"}):
         assert get_model_id() == "anthropic.claude-haiku-4-5-20251001-v1:0"
+
+
+def test_bedrock_client_passes_region_when_set() -> None:
+    env = {k: v for k, v in os.environ.items() if k not in ("AWS_REGION", "AWS_DEFAULT_REGION")}
+    with (
+        patch.dict(os.environ, {**env, "AWS_REGION": "eu-west-1"}, clear=True),
+        patch("boto3.client", return_value=MagicMock()) as mock_boto,
+    ):
+        _bedrock_client()
+        mock_boto.assert_called_once_with("bedrock-runtime", region_name="eu-west-1")
+
+
+def test_bedrock_client_omits_region_when_unset() -> None:
+    env = {k: v for k, v in os.environ.items() if k not in ("AWS_REGION", "AWS_DEFAULT_REGION")}
+    with (
+        patch.dict(os.environ, env, clear=True),
+        patch("boto3.client", return_value=MagicMock()) as mock_boto,
+    ):
+        _bedrock_client()
+        mock_boto.assert_called_once_with("bedrock-runtime")
+
+
+def test_bedrock_client_falls_back_to_default_region() -> None:
+    env = {k: v for k, v in os.environ.items() if k not in ("AWS_REGION", "AWS_DEFAULT_REGION")}
+    with (
+        patch.dict(os.environ, {**env, "AWS_DEFAULT_REGION": "ap-southeast-1"}, clear=True),
+        patch("boto3.client", return_value=MagicMock()) as mock_boto,
+    ):
+        _bedrock_client()
+        mock_boto.assert_called_once_with("bedrock-runtime", region_name="ap-southeast-1")
 
 
 def _mock_converse_response(text: str = "Hello!") -> dict:
@@ -36,7 +75,7 @@ def test_converse_success() -> None:
     mock_client = MagicMock()
     mock_client.converse.return_value = _mock_converse_response("Hi there!")
 
-    with patch("boto3.client", return_value=mock_client):
+    with patch("starter.agents.bedrock._bedrock_client", return_value=mock_client):
         result = converse(ConverseRequest(messages=[BedrockMessage(role="user", content="Hello")]))
 
     assert isinstance(result, ConverseResponse)
@@ -50,7 +89,7 @@ def test_converse_with_system_prompt() -> None:
     mock_client = MagicMock()
     mock_client.converse.return_value = _mock_converse_response("Got it.")
 
-    with patch("boto3.client", return_value=mock_client):
+    with patch("starter.agents.bedrock._bedrock_client", return_value=mock_client):
         converse(
             ConverseRequest(
                 messages=[BedrockMessage(role="user", content="Hi")],
@@ -67,7 +106,7 @@ def test_converse_without_system_prompt_omits_key() -> None:
     mock_client = MagicMock()
     mock_client.converse.return_value = _mock_converse_response()
 
-    with patch("boto3.client", return_value=mock_client):
+    with patch("starter.agents.bedrock._bedrock_client", return_value=mock_client):
         converse(ConverseRequest(messages=[BedrockMessage(role="user", content="Hi")]))
 
     call_kwargs = mock_client.converse.call_args[1]
@@ -78,7 +117,7 @@ def test_converse_message_shape() -> None:
     mock_client = MagicMock()
     mock_client.converse.return_value = _mock_converse_response()
 
-    with patch("boto3.client", return_value=mock_client):
+    with patch("starter.agents.bedrock._bedrock_client", return_value=mock_client):
         converse(
             ConverseRequest(
                 messages=[

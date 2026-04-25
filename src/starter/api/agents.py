@@ -26,7 +26,7 @@ class EchoResponse(BaseModel):
 
 
 @router.post("/agents/echo", response_model=EchoResponse)
-async def echo(
+def echo(
     body: EchoRequest,
     _claims: dict[str, Any] = Depends(require_mgmt_user),
 ) -> EchoResponse:
