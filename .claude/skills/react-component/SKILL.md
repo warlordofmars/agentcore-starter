@@ -303,15 +303,22 @@ or arrow as a separately-coverable unit. An inline
 test counts as one uncovered function — and a single uncovered
 function fails the 100% gate.
 
+Naming a handler does **not** make it covered. v8 still requires
+the function body to actually execute under at least one test.
+What naming buys you is fewer anonymous closures to chase: each
+named handler is one named function the suite must drive,
+instead of N inline arrows scattered across N call sites.
+
 The fix is to extract handlers into named `function`s in the
-component body and pass references:
+component body, pass references at the call site, and ensure
+the suite drives each named handler's body to completion:
 
 ```jsx
 // AVOID — anonymous arrow; vitest v8 counts the body as its own function
 <button onClick={() => setVisible(false)}>Close</button>
 
-// PREFER — named handler; the function declaration is covered by any test
-//          that triggers any path through the component
+// PREFER — named handler; the suite must still trigger a click that
+//          executes handleClose's body for v8 to mark it covered
 function handleClose() {
   setVisible(false);
 }

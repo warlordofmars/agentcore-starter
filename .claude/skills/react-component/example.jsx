@@ -41,9 +41,13 @@ export const AUTO_DISMISS_MS = 5000;
  *
  * Demonstrates the full convention set: shadcn `Button` for the
  * dismiss action, `var(--*)` tokens for every colour, Lucide icons
- * for the status glyph, named handlers (`handleDismiss`,
- * `onAutoDismiss`, `cleanup`) so vitest v8 counts each one as
- * covered when any test exercises the component.
+ * for the status glyph, and named handlers (`handleDismiss`,
+ * `onAutoDismiss`, `cleanup`) so the v8 counter sees a small,
+ * fixed set of named functions instead of one anonymous closure
+ * per call site. Naming alone does not satisfy the 100% functions
+ * threshold — the companion test must still drive each handler's
+ * body — but it removes the per-call-site uncovered-function
+ * counter that anonymous arrows create.
  */
 export default function Toast({ status, message, onClose }) {
   const [visible, setVisible] = useState(true);
@@ -189,7 +193,7 @@ export default function Toast({ status, message, onClose }) {
 //     await act(async () =>
 //       render(<Toast status="success" message="Saved." onClose={onClose} />)
 //     );
-//     await act(async () => vi.advanceTimersByTime(5000));
+//     await act(async () => vi.advanceTimersByTime(AUTO_DISMISS_MS));
 //     expect(screen.queryByText("Saved.")).toBeNull();
 //     expect(onClose).toHaveBeenCalledTimes(1);
 //   });
