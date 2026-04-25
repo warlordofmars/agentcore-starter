@@ -10,9 +10,9 @@ triggers:
     - "infra"
 ---
 
-# cdk-construct
-
 > STUB — full skill blocked by #48 (infra partition); follow-up #68.
+
+# cdk-construct
 
 Skill scope: CDK construct conventions for the AgentCore Starter
 stack — props pattern, cross-construct value exposure, IAM scoping,
@@ -21,7 +21,7 @@ stable; the partition work in #48 (`Partition
 infra/stacks/starter_stack.py into 6-7 constructs`) is what
 stabilises them.
 
-Until #48 lands, all infra lives in a single 1,498-line
+Until #48 lands, all infra lives in a single
 `AgentCoreStarterStack` class at
 `infra/stacks/starter_stack.py` — the current shape reference for
 how resources are wired, IAM grants are scoped, and CDK Nag
