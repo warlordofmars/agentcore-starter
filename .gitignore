@@ -34,7 +34,8 @@ infra/cdk.out/
 .env
 .env.*
 
-# Claude Code — ignore personal settings/memory but track shared agent definitions
+# Claude Code — ignore personal settings/memory but track shared agent definitions and skills
 .claude/*
 !.claude/agents
+!.claude/skills
 .autonomous-progress

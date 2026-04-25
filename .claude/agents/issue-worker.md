@@ -65,6 +65,25 @@ gh pr list --search "issue-<number>" --state open      # must be empty
 
 If closed or already has an open PR, skip it and move to the next. If ambiguous, make a reasonable interpretation, document it in the PR description, and proceed.
 
+### 1.5. Scan and load matching skills
+
+Before branching, scan `.claude/skills/` for skills whose triggers match the current issue. See ADR-0006 for the full skill contract; the scan logic below is the agent's implementation of it.
+
+```bash
+ls .claude/skills/*/SKILL.md 2>/dev/null
+```
+
+For each `SKILL.md` found, read its frontmatter and decide whether to load it. **Hybrid OR-match** — load the skill if **either** condition holds:
+
+- **Path match** — any glob in `triggers.paths` matches a file path predicted to be touched by this issue (predict from the issue body's "Files to touch" section, the area labels, and the title)
+- **Area match** — any value in `triggers.areas` is one of the issue's labels
+
+Loading a skill means reading the full body of `SKILL.md` into your working context for the rest of this issue cycle. Treat the body as implementation guidance alongside CLAUDE.md.
+
+`status: stub` skills load the same way, but read the `## Gaps` section first — the gaps tell you what the skill does **not** cover. Don't assume coverage you've been explicitly told is missing.
+
+If no skills match, proceed to step 2. Borderline matches should err toward loading; the load-on-demand cost is small.
+
 ### 2. Branch
 
 Always branch off `origin/development`, never off another feature branch:

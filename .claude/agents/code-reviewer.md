@@ -18,6 +18,29 @@ gh pr diff <PR>               # full diff
 
 ---
 
+## Skill discovery
+
+Before running the checklist, scan `.claude/skills/` for skills whose triggers match this PR's diff. See ADR-0006 for the full skill contract; the scan logic below is this agent's implementation of it.
+
+```bash
+ls .claude/skills/*/SKILL.md 2>/dev/null
+```
+
+For each `SKILL.md` found, read its frontmatter and decide whether to load it. **Hybrid OR-match** — load the skill if **either** condition holds:
+
+- **Path match** — any glob in `triggers.paths` matches any file in the PR's `gh pr diff <PR> --name-only` output
+- **Area match** — any value in `triggers.areas` is one of the labels on the issue this PR closes (resolve via the `Closes #N` line in the PR body)
+
+If the PR doesn't close an issue, match `triggers.areas` against labels on the PR itself; if neither the PR nor a closed issue has labels, only path-based matching applies.
+
+Loading a skill means reading the full body of `SKILL.md` into your working context. Treat the body as an additional convention checklist source alongside the numbered checks below — if a loaded skill documents a convention that the diff violates, raise it as `FAIL` or `WARN` per the same severity rules used for CLAUDE.md conventions. Default severity for skill-documented violations is `WARN`. `FAIL` is reserved for skill-documented conventions explicitly marked as load-bearing or security-critical in the skill body.
+
+`status: stub` skills load the same way, but their `## Gaps` section identifies coverage the skill explicitly does **not** provide. Don't raise findings against gaps — they're known absences, not violations.
+
+The match is permissive on purpose. If no skills match, proceed to the checklist; the project-wide checks below still run on every PR regardless of skill coverage.
+
+---
+
 ## Checklist
 
 Run every check below. For each finding emit one of:
