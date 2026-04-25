@@ -4,13 +4,13 @@ Status: Accepted
 
 ## Context
 
-This template ships eight specialist agents under `.claude/agents/`:
-`issue-worker`, `design-review`, `backlog-manager`, `code-reviewer`,
-`docs-sync`, `security-auditor`, `incident-responder`, and `onboarding`.
-Each owns a tightly-scoped workflow. None owns the layer above them — the
-sequencing of in-flight work, the resolution of human directives against
-live state, the cross-session continuity that lets autonomous loops actually
-loop.
+Prior to this ADR, this template shipped eight specialist agents under
+`.claude/agents/`: `issue-worker`, `design-review`, `backlog-manager`,
+`code-reviewer`, `docs-sync`, `security-auditor`, `incident-responder`,
+and `onboarding`. Each owned a tightly-scoped workflow. None owned the
+layer above them — the sequencing of in-flight work, the resolution of
+human directives against live state, the cross-session continuity that
+lets autonomous loops actually loop.
 
 That orchestration role has been performed by an external Claude session
 (`chat.anthropic.com`) during the `chat-app-ready` milestone push. It works,
@@ -54,10 +54,12 @@ the external Claude has been making:
   a durable, auto-detectable halt list
 - `gh run list --branch development` returns post-merge pipeline state
 
-The existing `.autonomous-progress` file (used by `issue-worker` to resume
-interrupted batches) demonstrates that in-repo persistence works at the
-right scale when it is genuinely needed. Orchestration sequencing is not
-that scale — every input is already in `gh`.
+The `.autonomous-progress` convention used by `issue-worker` to resume
+interrupted batches (a runtime-written file at the repo root, not
+committed — see `.claude/agents/issue-worker.md`) demonstrates that
+in-repo persistence works at the right scale when it is genuinely
+needed. Orchestration sequencing is not that scale — every input is
+already in `gh`.
 
 ## Decision
 

@@ -24,7 +24,8 @@ gh issue list --state open --limit 200 \
   --json number,title,labels,milestone,assignees,body
 
 # Open PRs with status check rollup, mergeable state, and body (for Closes #N markers)
-gh pr list --state open \
+# Explicit --limit so the in-flight view is complete; default page size is 30.
+gh pr list --state open --limit 200 \
   --json number,title,labels,headRefName,statusCheckRollup,mergeable,body
 
 # Recent post-merge pipeline runs on development
