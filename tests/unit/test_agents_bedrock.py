@@ -1,6 +1,7 @@
 # Copyright (c) 2026 John Carter. All rights reserved.
 from __future__ import annotations
 
+import json
 import os
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +11,7 @@ from starter.agents.bedrock import (
     ConverseResponse,
     _bedrock_client,
     converse,
+    converse_stream,
     get_model_id,
 )
 
@@ -134,3 +136,95 @@ def test_converse_message_shape() -> None:
         {"role": "assistant", "content": [{"text": "Hi"}]},
         {"role": "user", "content": [{"text": "Bye"}]},
     ]
+
+
+# ---------------------------------------------------------------------------
+# converse_stream
+# ---------------------------------------------------------------------------
+
+
+def _stream_events(*events) -> dict:
+    return {"stream": list(events)}
+
+
+def test_converse_stream_yields_delta_and_done() -> None:
+    mock_client = MagicMock()
+    mock_client.converse_stream.return_value = _stream_events(
+        {"contentBlockDelta": {"delta": {"text": "Hello"}}},
+        {"contentBlockDelta": {"delta": {"text": " world"}}},
+        {"messageStop": {"stopReason": "end_turn"}},
+        {"metadata": {"usage": {"inputTokens": 10, "outputTokens": 5}}},
+    )
+
+    with patch("starter.agents.bedrock._bedrock_client", return_value=mock_client):
+        chunks = list(
+            converse_stream(ConverseRequest(messages=[BedrockMessage(role="user", content="Hi")]))
+        )
+
+    assert len(chunks) == 3
+    assert json.loads(chunks[0][len("data: ") :]) == {"type": "delta", "text": "Hello"}
+    assert json.loads(chunks[1][len("data: ") :]) == {"type": "delta", "text": " world"}
+    done = json.loads(chunks[2][len("data: ") :])
+    assert done["type"] == "done"
+    assert done["stop_reason"] == "end_turn"
+    assert done["input_tokens"] == 10
+    assert done["output_tokens"] == 5
+
+
+def test_converse_stream_sse_format() -> None:
+    mock_client = MagicMock()
+    mock_client.converse_stream.return_value = _stream_events(
+        {"contentBlockDelta": {"delta": {"text": "Hi"}}},
+        {"messageStop": {"stopReason": "end_turn"}},
+        {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 1}}},
+    )
+
+    with patch("starter.agents.bedrock._bedrock_client", return_value=mock_client):
+        chunks = list(
+            converse_stream(ConverseRequest(messages=[BedrockMessage(role="user", content="X")]))
+        )
+
+    for chunk in chunks:
+        assert chunk.startswith("data: ")
+        assert chunk.endswith("\n\n")
+
+
+def test_converse_stream_with_system_prompt() -> None:
+    mock_client = MagicMock()
+    mock_client.converse_stream.return_value = _stream_events(
+        {"messageStop": {"stopReason": "end_turn"}},
+        {"metadata": {"usage": {"inputTokens": 5, "outputTokens": 2}}},
+    )
+
+    with patch("starter.agents.bedrock._bedrock_client", return_value=mock_client):
+        list(
+            converse_stream(
+                ConverseRequest(
+                    messages=[BedrockMessage(role="user", content="Hi")],
+                    system="Be brief.",
+                )
+            )
+        )
+
+    call_kwargs = mock_client.converse_stream.call_args[1]
+    assert call_kwargs["system"] == [{"text": "Be brief."}]
+
+
+def test_converse_stream_skips_empty_text_delta() -> None:
+    mock_client = MagicMock()
+    mock_client.converse_stream.return_value = _stream_events(
+        {"contentBlockDelta": {"delta": {}}},  # no "text" key
+        {"contentBlockDelta": {"delta": {"text": ""}}},  # empty string
+        {"contentBlockDelta": {"delta": {"text": "ok"}}},
+        {"messageStop": {"stopReason": "end_turn"}},
+        {"metadata": {"usage": {"inputTokens": 2, "outputTokens": 1}}},
+    )
+
+    with patch("starter.agents.bedrock._bedrock_client", return_value=mock_client):
+        chunks = list(
+            converse_stream(ConverseRequest(messages=[BedrockMessage(role="user", content="X")]))
+        )
+
+    # Only "ok" delta + done
+    assert len(chunks) == 2
+    assert json.loads(chunks[0][len("data: ") :])["text"] == "ok"

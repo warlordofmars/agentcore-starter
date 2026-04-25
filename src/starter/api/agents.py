@@ -3,12 +3,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from starter.agents.bedrock import BedrockMessage, ConverseRequest, converse
+from starter.agents.bedrock import BedrockMessage, ConverseRequest, converse, converse_stream
 from starter.api._auth import require_mgmt_user
 
 router = APIRouter()
@@ -46,3 +48,27 @@ def echo(
         input_tokens=result.input_tokens,
         output_tokens=result.output_tokens,
     )
+
+
+@router.post("/agents/echo/stream")
+def echo_stream(
+    body: EchoRequest,
+    _claims: dict[str, Any] = Depends(require_mgmt_user),
+) -> StreamingResponse:
+    """Streaming echo endpoint — returns an SSE stream of Bedrock reply tokens.
+
+    Each ``data:`` event is a JSON object with ``type`` equal to ``"delta"``
+    (incremental text) or ``"done"`` (final event with token counts).
+
+    Replace or extend this scaffold with your own streaming agent logic.
+    """
+
+    def _stream() -> Iterator[str]:
+        yield from converse_stream(
+            ConverseRequest(
+                messages=[BedrockMessage(role="user", content=body.message)],
+                system=body.system,
+            )
+        )
+
+    return StreamingResponse(_stream(), media_type="text/event-stream")
