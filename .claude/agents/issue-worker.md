@@ -177,11 +177,27 @@ If any check fails:
 
 If the same check fails 3 times without a clear fix, stop and ask.
 
+### 7.3. Run code-reviewer
+
+Runs on **every** agent-created PR, immediately after CI is green. Invokes the `code-reviewer` agent via the `Agent` tool with the PR number. The agent checks all CLAUDE.md conventions (copyright headers, CSS variables, no hardcoded secrets, DynamoDB patterns, auth safety, GitHub Actions SHA pinning, etc.) and returns a structured report.
+
+Triage each `FAIL` finding:
+- Fix on the same branch, run `uv run inv pre-push`, push.
+- Return to step 7 to watch the new CI run.
+- Once CI is green again, re-run `code-reviewer` to confirm the finding is resolved.
+
+Triage each `WARN` finding:
+- Judgment call. Fix it if straightforward; note it in the PR description if deferring.
+
+**Hard cap: 3 fix iterations.** If `FAIL` items remain after 3 rounds, emit `HUMAN_INPUT_REQUIRED: code-reviewer has unresolved blockers on #NNN after 3 fix attempts` and stop.
+
+Only proceed to step 7.5 once `code-reviewer` reports no `FAIL` items.
+
 ### 7.5. Request Copilot review
 
 Runs on **every** agent-created PR. The `agent-safe` label only gates whether the agent merges autonomously after the review — every PR gets a second opinion.
 
-1. After CI is green, request a Copilot review:
+1. After CI is green and `code-reviewer` is clean, request a Copilot review:
    ```bash
    gh pr edit <PR-NUMBER> --add-reviewer "@copilot"
    ```
