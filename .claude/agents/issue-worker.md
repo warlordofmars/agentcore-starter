@@ -100,6 +100,17 @@ If infra files changed, also run:
 uv run inv synth
 ```
 
+Then run a local Copilot quality review against the current branch diff:
+
+```bash
+copilot -p "/review" --allow-all-tools --silent
+```
+
+Triage findings:
+- **Correctness / security / clarity** — fix before pushing.
+- **Style nit or convention already covered by CLAUDE.md** — note in the PR description and move on.
+- If Copilot cannot produce a review (auth error, no diff detected), skip and proceed.
+
 Fix all failures before proceeding.
 
 ### 5. Run local e2e if warranted
@@ -182,14 +193,15 @@ If the same check fails 3 times without a clear fix, stop and ask.
 Runs on **every** agent-created PR, immediately after CI is green. Invokes the `code-reviewer` agent via the `Agent` tool with the PR number. The agent checks all CLAUDE.md conventions (copyright headers, CSS variables, no hardcoded secrets, DynamoDB patterns, auth safety, GitHub Actions SHA pinning, etc.) and returns a structured report.
 
 Triage each `FAIL` finding:
-- Fix on the same branch, run `uv run inv pre-push`, push.
-- Return to step 7 to watch the new CI run.
-- Once CI is green again, re-run `code-reviewer` to confirm the finding is resolved.
+1. Fix on the same branch, run `uv run inv pre-push`, push.
+2. Watch the new CI run (same loop as step 7 — monitor until green, fix if it fails).
+3. Re-run `code-reviewer` to confirm the finding is resolved.
+4. Repeat from 1 if new `FAIL` items remain.
 
 Triage each `WARN` finding:
 - Judgment call. Fix it if straightforward; note it in the PR description if deferring.
 
-**Hard cap: 3 fix iterations.** If `FAIL` items remain after 3 rounds, emit `HUMAN_INPUT_REQUIRED: code-reviewer has unresolved blockers on #NNN after 3 fix attempts` and stop.
+**Hard cap: 3 fix iterations.** Count each push-and-recheck as one iteration. If `FAIL` items remain after 3 iterations, emit `HUMAN_INPUT_REQUIRED: code-reviewer has unresolved blockers on #NNN after 3 fix attempts` and stop.
 
 Only proceed to step 7.5 once `code-reviewer` reports no `FAIL` items.
 
