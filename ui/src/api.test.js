@@ -44,7 +44,7 @@ describe("api", () => {
   // ---------------------------------------------------------------------------
 
   it("adds Authorization header when token is in localStorage", async () => {
-    localStorage.setItem("hive_mgmt_token", "tok123");
+    localStorage.setItem("starter_mgmt_token", "tok123");
     mockOk({ items: [] });
     await api.listMemories();
     expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe("Bearer tok123");
@@ -323,7 +323,7 @@ describe("api", () => {
   });
 
   it("createApiKey calls POST /api/keys with name and scope", async () => {
-    mockOk({ key_id: "k1", plaintext_key: "hive_sk_abc" });
+    mockOk({ key_id: "k1", plaintext_key: "starter_sk_abc" });
     await api.createApiKey("My Key", "memories:read");
     expect(fetchMock.mock.calls[0][1].method).toBe("POST");
     expect(fetchMock.mock.calls[0][0]).toContain("/api/keys");
@@ -422,12 +422,12 @@ describe("api", () => {
   // ---------------------------------------------------------------------------
 
   it("401 response clears mgmt token and redirects to /", async () => {
-    storage["hive_mgmt_token"] = "old-token";
+    storage["starter_mgmt_token"] = "old-token";
     vi.stubGlobal("location", { replace: vi.fn() });
     fetchMock.mockResolvedValue({ ok: false, status: 401, json: () => Promise.resolve({}) });
     const result = await api.getStats();
     expect(result).toBeNull();
-    expect(storage["hive_mgmt_token"]).toBeUndefined();
+    expect(storage["starter_mgmt_token"]).toBeUndefined();
     expect(window.location.replace).toHaveBeenCalledWith("/");
   });
 
@@ -453,8 +453,8 @@ describe("api", () => {
   }
 
   it("exportAccount sends Authorization header when token present", async () => {
-    storage["hive_mgmt_token"] = "user-token";
-    mockExportResponse({ disposition: 'attachment; filename="hive-export.json"' });
+    storage["starter_mgmt_token"] = "user-token";
+    mockExportResponse({ disposition: 'attachment; filename="agentcore-starter-export.json"' });
     await api.exportAccount();
     const [url, opts] = fetchMock.mock.calls[0];
     expect(url).toContain("/api/account/export");
@@ -472,17 +472,17 @@ describe("api", () => {
     const blob = new Blob(["{}"], { type: "application/json" });
     mockExportResponse({
       blob,
-      disposition: 'attachment; filename="hive-export-user-20260418.json"',
+      disposition: 'attachment; filename="agentcore-starter-export-user-20260418.json"',
     });
     const result = await api.exportAccount();
     expect(result.blob).toBe(blob);
-    expect(result.filename).toBe("hive-export-user-20260418.json");
+    expect(result.filename).toBe("agentcore-starter-export-user-20260418.json");
   });
 
   it("exportAccount falls back to a default filename when disposition is missing", async () => {
     mockExportResponse({ disposition: null });
     const result = await api.exportAccount();
-    expect(result.filename).toBe("hive-export.json");
+    expect(result.filename).toBe("agentcore-starter-export.json");
   });
 
   it("exportAccount surfaces error detail from JSON body on non-OK responses", async () => {
@@ -513,7 +513,7 @@ describe("api", () => {
   });
 
   it("exportAccount clears token and redirects on 401", async () => {
-    storage["hive_mgmt_token"] = "old-token";
+    storage["starter_mgmt_token"] = "old-token";
     const replace = vi.fn();
     vi.stubGlobal("location", { replace });
     fetchMock.mockResolvedValue({
@@ -526,7 +526,7 @@ describe("api", () => {
     });
     const result = await api.exportAccount();
     expect(result).toBeNull();
-    expect(storage["hive_mgmt_token"]).toBeUndefined();
+    expect(storage["starter_mgmt_token"]).toBeUndefined();
     expect(replace).toHaveBeenCalledWith("/");
   });
 
@@ -547,7 +547,7 @@ describe("api", () => {
   });
 
   it("getMemoryContent sends Authorization header when token present", async () => {
-    storage["hive_mgmt_token"] = "user-token";
+    storage["starter_mgmt_token"] = "user-token";
     fetchMock.mockResolvedValue({
       ok: true,
       status: 200,
@@ -588,13 +588,13 @@ describe("api", () => {
   });
 
   it("getMemoryContent clears token and redirects on 401", async () => {
-    storage["hive_mgmt_token"] = "old-token";
+    storage["starter_mgmt_token"] = "old-token";
     const replace = vi.fn();
     vi.stubGlobal("location", { replace });
     fetchMock.mockResolvedValue({ ok: false, status: 401 });
     const result = await api.getMemoryContent("mem-abc");
     expect(result).toBeNull();
-    expect(storage["hive_mgmt_token"]).toBeUndefined();
+    expect(storage["starter_mgmt_token"]).toBeUndefined();
     expect(replace).toHaveBeenCalledWith("/");
   });
 });

@@ -1,23 +1,20 @@
 # Infrastructure
 
-AWS CDK (Python) stack that provisions all Hive resources. Defined in `stacks/hive_stack.py`.
+AWS CDK (Python) stack that provisions all AgentCore Starter resources. Defined in `stacks/starter_stack.py`.
 
 ## Resources created
 
 | Resource | Name / ID | Notes |
 |---|---|---|
-| DynamoDB table | `hive` | Single-table, PAY_PER_REQUEST, PITR enabled, TTL on `ttl` attribute |
-| DynamoDB GSI | `KeyIndex` | `GSI1PK` + `GSI1SK` — memory key lookups |
-| DynamoDB GSI | `TagIndex` | `GSI2PK` + `GSI2SK` — list memories by tag |
+| DynamoDB table | `agentcore-starter-{env}` | Single-table, PAY_PER_REQUEST, PITR enabled (prod), TTL on `ttl` attribute |
+| DynamoDB GSI | `KeyIndex` | `GSI1PK` + `GSI1SK` — key lookups |
+| DynamoDB GSI | `TagIndex` | `GSI2PK` + `GSI2SK` — list by tag |
 | DynamoDB GSI | `ClientIndex` | `GSI3PK` — OAuth client lookups |
-| Lambda | `McpFunction` | FastMCP server, Python 3.12, 512 MB, 30s timeout |
 | Lambda | `ApiFunction` | FastAPI management API, Python 3.12, 512 MB, 30s timeout |
-| Lambda Function URL | (MCP) | `auth=NONE`, CORS open, HTTPS only |
 | Lambda Function URL | (API) | `auth=NONE`, CORS open, HTTPS only |
 | S3 Bucket | `UiBucket` | Private, OAC, auto-delete on stack removal |
 | CloudFront Distribution | `UiDistribution` | UI from S3, `/api/*` + `/oauth/*` → API Lambda |
-| SSM Parameter | `/hive/jwt-secret` | JWT signing secret, `RETAIN` policy |
-| IAM Role | `McpLambdaRole` | DynamoDB + SSM read, Lambda basic execution |
+| SSM Parameter | `/agentcore-starter/jwt-secret` | JWT signing secret, `RETAIN` policy |
 | IAM Role | `ApiLambdaRole` | DynamoDB + SSM read, Lambda basic execution |
 
 ### CloudFront routing
@@ -34,10 +31,9 @@ AWS CDK (Python) stack that provisions all Hive resources. Defined in `stacks/hi
 
 | Output | Description |
 |---|---|
-| `HiveStack.McpFunctionUrl` | MCP server URL (use in MCP client config) |
-| `HiveStack.ApiFunctionUrl` | Direct API Lambda URL |
-| `HiveStack.UiUrl` | CloudFront URL (use for admin UI + API) |
-| `HiveStack.TableName` | DynamoDB table name |
+| `AgentCoreStarterStack.ApiFunctionUrl` | Direct API Lambda URL |
+| `AgentCoreStarterStack.UiUrl` | CloudFront URL (use for admin UI + API) |
+| `AgentCoreStarterStack.TableName` | DynamoDB table name |
 
 ## Lambda bundling
 
@@ -46,7 +42,7 @@ The Lambda package is built inside a Docker container (the Lambda Python 3.12 bu
 1. Install `uv` via pip
 2. `uv export --no-group dev --no-group infra` → `/tmp/requirements.txt` (runtime deps only)
 3. `pip install -r /tmp/requirements.txt -t /asset-output`
-4. `cp -r src/hive /asset-output/hive`
+4. `cp -r src/starter /asset-output/starter`
 
 The `dev` and `infra` dependency groups are excluded to keep the Lambda package under the 250 MB limit.
 
@@ -64,25 +60,24 @@ The `dev` and `infra` dependency groups are excluded to keep the Lambda package 
 npm install -g aws-cdk
 
 # Install infra dependencies
-cd hive
 uv sync --group dev --group infra
 
 # Bootstrap CDK (first time only, per account/region)
 cd infra
-cdk bootstrap aws://<account-id>/us-east-1
+cdk bootstrap -c account=YOUR_ACCOUNT_ID -c env=dev
 
 # Build the UI first (CDK uploads it during deploy)
 cd ../ui && npm install && npm run build && cd ../infra
 
 # Deploy
-cdk deploy
+uv run inv deploy --env dev
 ```
 
 On first deploy, rotate the JWT secret from the placeholder value:
 
 ```bash
 aws ssm put-parameter \
-  --name /hive/jwt-secret \
+  --name /agentcore-starter/jwt-secret \
   --value "$(openssl rand -hex 32)" \
   --overwrite
 ```
@@ -99,7 +94,7 @@ Subsequent deployments happen automatically on push to `main`. See [../.github/w
 
 ### OIDC IAM role
 
-The deploy job assumes `HiveGitHubActionsDeployRole` via OIDC (no long-lived access keys). The trust policy is scoped to `repo:warlordofmars/hive:environment:production`.
+The deploy job assumes an IAM role via OIDC (no long-lived access keys). The trust policy should be scoped to your repo.
 
 Required IAM permissions: CloudFormation, S3, IAM, Lambda, DynamoDB, SSM, ECR (for bundling image pull), STS.
 
@@ -109,16 +104,16 @@ Required IAM permissions: CloudFormation, S3, IAM, Lambda, DynamoDB, SSM, ECR (f
 cd infra
 
 # Show what will change before deploying
-cdk diff
+cdk diff -c account=YOUR_ACCOUNT_ID -c env=dev
 
 # Deploy without approval prompts
-cdk deploy --require-approval never
+cdk deploy -c account=YOUR_ACCOUNT_ID -c env=dev --require-approval never
 
 # Synthesize CloudFormation template
-cdk synth
+cdk synth -c account=YOUR_ACCOUNT_ID -c env=dev
 
 # Destroy the stack (DynamoDB table and SSM parameter are RETAINED)
-cdk destroy
+cdk destroy -c account=YOUR_ACCOUNT_ID -c env=dev
 ```
 
 ## Configuration
@@ -127,7 +122,7 @@ All Lambda configuration is via environment variables set in the CDK stack:
 
 | Variable | Set by | Description |
 |---|---|---|
-| `HIVE_TABLE_NAME` | CDK | DynamoDB table name |
-| `HIVE_ISSUER` | CDK | JWT issuer URL |
-| `HIVE_JWT_SECRET_PARAM` | (optional) | SSM parameter name for JWT secret (defaults to `/hive/jwt-secret`) |
+| `STARTER_TABLE_NAME` | CDK | DynamoDB table name |
+| `STARTER_ISSUER` | CDK | JWT issuer URL |
+| `STARTER_JWT_SECRET_PARAM` | (optional) | SSM parameter name for JWT secret (defaults to `/agentcore-starter/jwt-secret`) |
 | `DYNAMODB_ENDPOINT` | (local only) | Override DynamoDB endpoint for local development |

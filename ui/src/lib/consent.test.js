@@ -70,14 +70,14 @@ describe("consent utilities", () => {
   });
 
   it("CONSENT_KEY and CONSENT_RESET_EVENT are stable strings", () => {
-    expect(CONSENT_KEY).toBe("hive_ga_consent");
-    expect(CONSENT_RESET_EVENT).toBe("hive:consent-reset");
+    expect(CONSENT_KEY).toBe("starter_ga_consent");
+    expect(CONSENT_RESET_EVENT).toBe("starter:consent-reset");
   });
 
   describe("loadGtag", () => {
     beforeEach(() => {
       document
-        .querySelectorAll("script[data-hive-ga]")
+        .querySelectorAll("script[data-starter-ga]")
         .forEach((s) => s.remove());
       delete globalThis.gtag;
       delete globalThis.dataLayer;
@@ -85,12 +85,12 @@ describe("consent utilities", () => {
 
     it("is a no-op when no measurement id is given", () => {
       loadGtag("");
-      expect(document.querySelector("script[data-hive-ga]")).toBeNull();
+      expect(document.querySelector("script[data-starter-ga]")).toBeNull();
     });
 
     it("injects the gtag script and initialises gtag()", () => {
       loadGtag("G-TESTID");
-      const s = document.querySelector("script[data-hive-ga]");
+      const s = document.querySelector("script[data-starter-ga]");
       expect(s).not.toBeNull();
       expect(s.src).toContain("googletagmanager.com/gtag/js?id=G-TESTID");
       expect(typeof globalThis.gtag).toBe("function");
@@ -100,7 +100,7 @@ describe("consent utilities", () => {
     it("does not inject the script twice", () => {
       loadGtag("G-TESTID");
       loadGtag("G-TESTID");
-      expect(document.querySelectorAll("script[data-hive-ga]")).toHaveLength(1);
+      expect(document.querySelectorAll("script[data-starter-ga]")).toHaveLength(1);
     });
 
     it("is a no-op when document is missing", () => {

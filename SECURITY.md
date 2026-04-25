@@ -4,7 +4,7 @@
 
 **Please do not open a public GitHub issue for security vulnerabilities.**
 
-Use [GitHub's private vulnerability reporting](https://github.com/warlordofmars/hive/security/advisories/new) to submit a report confidentially. You'll receive a response within 5 business days.
+Use [GitHub's private vulnerability reporting](../../security/advisories/new) to submit a report confidentially. You'll receive a response within 5 business days.
 
 Please include:
 - A description of the vulnerability and its potential impact
@@ -21,9 +21,8 @@ Please include:
 ## Scope
 
 In scope:
-- The hosted service at `hive.warlordofmars.net`
 - Authentication and OAuth 2.1 implementation
-- Memory data access controls
+- Data access controls
 - API endpoints and data validation
 
 Out of scope:
@@ -33,4 +32,4 @@ Out of scope:
 
 ## Supported versions
 
-Only the latest deployed version of the hosted service receives security fixes.
+Only the latest deployed version receives security fixes.

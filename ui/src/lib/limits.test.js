@@ -1,16 +1,6 @@
 // Copyright (c) 2026 John Carter. All rights reserved.
 import { describe, expect, it } from "vitest";
-import { FREE_TIER_MEMORY_LIMIT, FREE_TIER_STORAGE_BYTES_LIMIT, formatBytes } from "./limits.js";
-
-describe("constants", () => {
-  it("FREE_TIER_MEMORY_LIMIT is 500", () => {
-    expect(FREE_TIER_MEMORY_LIMIT).toBe(500);
-  });
-
-  it("FREE_TIER_STORAGE_BYTES_LIMIT is 100 MB", () => {
-    expect(FREE_TIER_STORAGE_BYTES_LIMIT).toBe(100 * 1024 * 1024);
-  });
-});
+import { formatBytes } from "./limits.js";
 
 describe("formatBytes", () => {
   it("returns em dash for null", () => {
@@ -21,31 +11,29 @@ describe("formatBytes", () => {
     expect(formatBytes(undefined)).toBe("—");
   });
 
-  it("returns '0 B' for zero", () => {
+  it("returns 0 B for zero", () => {
     expect(formatBytes(0)).toBe("0 B");
   });
 
-  it("returns bytes for small values", () => {
+  it("formats bytes", () => {
     expect(formatBytes(512)).toBe("512 B");
   });
 
-  it("returns KB for kilobyte values", () => {
-    expect(formatBytes(1024)).toBe("1 KB");
+  it("formats kilobytes", () => {
+    expect(formatBytes(1024)).toBe("1.0 KB");
   });
 
-  it("returns fractional KB for non-round kilobyte values", () => {
-    expect(formatBytes(1536)).toBe("1.5 KB");
+  it("formats megabytes", () => {
+    expect(formatBytes(1024 * 1024)).toBe("1.0 MB");
   });
 
-  it("returns MB for megabyte values", () => {
-    expect(formatBytes(1024 * 1024)).toBe("1 MB");
+  it("formats gigabytes", () => {
+    expect(formatBytes(1024 * 1024 * 1024)).toBe("1.0 GB");
   });
 
-  it("returns GB for gigabyte values", () => {
-    expect(formatBytes(1024 * 1024 * 1024)).toBe("1 GB");
-  });
-
-  it("caps at GB and does not return TB", () => {
-    expect(formatBytes(1024 * 1024 * 1024 * 1024)).toBe("1024 GB");
+  it("caps at terabytes", () => {
+    expect(formatBytes(1024 ** 4)).toBe("1.0 TB");
+    // Beyond TB still uses TB
+    expect(formatBytes(1024 ** 5)).toBe("1024.0 TB");
   });
 });

@@ -47,7 +47,7 @@ describe("AuthCallback", () => {
     stubLocation("?code=abc&state=s1");
     _session["oauth_state"] = "s1";
     _session["pkce_verifier"] = "verifier123";
-    _storage["hive_client_id"] = "client-1";
+    _storage["starter_client_id"] = "client-1";
     vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise(() => {})));
 
     await act(async () => render(<AuthCallback />));
@@ -58,7 +58,7 @@ describe("AuthCallback", () => {
     stubLocation("?code=auth-code&state=mystate");
     _session["oauth_state"] = "mystate";
     _session["pkce_verifier"] = "verifier123";
-    _storage["hive_client_id"] = "client-1";
+    _storage["starter_client_id"] = "client-1";
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -69,7 +69,7 @@ describe("AuthCallback", () => {
 
     await act(async () => render(<AuthCallback />));
     await waitFor(() => {
-      expect(_storage["hive_token"]).toBe("jwt-token-abc");
+      expect(_storage["starter_token"]).toBe("jwt-token-abc");
       expect(window.location.replace).toHaveBeenCalledWith("/");
       expect(_session["pkce_verifier"]).toBeUndefined();
       expect(_session["oauth_state"]).toBeUndefined();
@@ -107,7 +107,7 @@ describe("AuthCallback", () => {
     stubLocation("?code=bad-code&state=s");
     _session["oauth_state"] = "s";
     _session["pkce_verifier"] = "verifier";
-    _storage["hive_client_id"] = "client-1";
+    _storage["starter_client_id"] = "client-1";
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -133,7 +133,7 @@ describe("AuthCallback", () => {
     stubLocation("?code=bad-code&state=s");
     _session["oauth_state"] = "s";
     _session["pkce_verifier"] = "verifier";
-    _storage["hive_client_id"] = "client-1";
+    _storage["starter_client_id"] = "client-1";
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({

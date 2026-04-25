@@ -157,8 +157,8 @@
     font-size: 13px;
   }
 
-  /* Navbar parity with the management app (#544 follow-up). The target
-     order at <md is `logo · Hive · [search] · Sign in · theme ·
+  /* Navbar parity with the management app. The target
+     order at <md is `logo · AgentCore Starter · [search] · Sign in · theme ·
      hamburger` — matching marketing/app. Four adjustments:
        (a) Hide every VitePress vertical divider between groups on the
            mobile navbar (matches marketing/app, which have none).
@@ -382,7 +382,7 @@
   padding-bottom: 80px;
 }
 
-/* Hero name ("Hive") — plain white instead of default gradient */
+/* Hero name — plain white instead of default gradient */
 :root {
   --vp-home-hero-name-color: #fff;
   --vp-home-hero-name-background: none;

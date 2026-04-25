@@ -43,7 +43,7 @@ describe("useTheme", () => {
   });
 
   it("uses stored preference over OS preference", () => {
-    localStorage.setItem("hive_theme", "dark");
+    localStorage.setItem("starter_theme", "dark");
     const { result } = renderHook(() => useTheme());
     expect(result.current.theme).toBe("dark");
   });
@@ -60,7 +60,7 @@ describe("useTheme", () => {
   it("persists theme to localStorage on change", () => {
     const { result } = renderHook(() => useTheme());
     act(() => result.current.toggle());
-    expect(localStorage.getItem("hive_theme")).toBe("dark");
+    expect(localStorage.getItem("starter_theme")).toBe("dark");
   });
 
   it("sets data-theme on documentElement", () => {
@@ -70,7 +70,7 @@ describe("useTheme", () => {
   });
 
   it("ignores invalid stored values and falls back to OS", () => {
-    localStorage.setItem("hive_theme", "invalid");
+    localStorage.setItem("starter_theme", "invalid");
     const { result } = renderHook(() => useTheme());
     expect(result.current.theme).toBe("light");
   });

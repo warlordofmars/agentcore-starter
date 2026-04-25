@@ -1,4 +1,4 @@
-# Contributing to Hive
+# Contributing to AgentCore Starter
 
 Thanks for your interest in contributing! This guide covers local dev setup, the test workflow, and how to open a PR.
 
@@ -12,8 +12,8 @@ Thanks for your interest in contributing! This guide covers local dev setup, the
 ## Local setup
 
 ```bash
-git clone https://github.com/warlordofmars/hive
-cd hive
+git clone <your-fork>
+cd agentcore-starter
 
 # Python deps (creates .venv automatically)
 uv sync --all-extras
@@ -28,12 +28,12 @@ uv run inv install-hooks
 ## Running the stack locally
 
 ```bash
-# MCP server (port 8000)
-uv run uvicorn hive.server:app --port 8000 --reload
+# Start all services (DynamoDB Local, API, Vite dev server)
+uv run inv dev
 
-# Management API (port 8001)
-HIVE_BYPASS_GOOGLE_AUTH=1 \
-uv run uvicorn hive.api.main:app --port 8001 --reload
+# Or start the API manually (port 8001)
+STARTER_BYPASS_GOOGLE_AUTH=1 \
+uv run uvicorn starter.api.main:app --port 8001 --reload
 
 # React UI (port 5173)
 cd ui && npm run dev

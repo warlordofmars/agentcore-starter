@@ -16,7 +16,7 @@ function renderBanner() {
 describe("ConsentBanner", () => {
   beforeEach(() => {
     localStorage.clear();
-    document.querySelectorAll("script[data-hive-ga]").forEach((s) => s.remove());
+    document.querySelectorAll("script[data-starter-ga]").forEach((s) => s.remove());
     delete globalThis.gtag;
     delete globalThis.dataLayer;
     vi.stubEnv("VITE_GA_MEASUREMENT_ID", "G-TESTID");
@@ -49,7 +49,7 @@ describe("ConsentBanner", () => {
     await act(async () => renderBanner());
     fireEvent.click(screen.getByText("Accept"));
     expect(localStorage.getItem(CONSENT_KEY)).toBe("accept");
-    expect(document.querySelector("script[data-hive-ga]")).not.toBeNull();
+    expect(document.querySelector("script[data-starter-ga]")).not.toBeNull();
     expect(screen.queryByRole("dialog", { name: "Cookie consent" })).toBeNull();
   });
 
@@ -57,7 +57,7 @@ describe("ConsentBanner", () => {
     await act(async () => renderBanner());
     fireEvent.click(screen.getByText("Reject"));
     expect(localStorage.getItem(CONSENT_KEY)).toBe("reject");
-    expect(document.querySelector("script[data-hive-ga]")).toBeNull();
+    expect(document.querySelector("script[data-starter-ga]")).toBeNull();
     expect(screen.queryByRole("dialog", { name: "Cookie consent" })).toBeNull();
   });
 

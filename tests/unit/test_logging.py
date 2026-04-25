@@ -1,62 +1,85 @@
 # Copyright (c) 2026 John Carter. All rights reserved.
-"""Unit tests for logging_config.py — no AWS deps."""
+"""Unit tests for structured logging helpers."""
 
-from __future__ import annotations
-
-import importlib.metadata
-import json
 import logging
-import os
+
+from starter.logging_config import (
+    configure_logging,
+    get_logger,
+    new_request_id,
+    set_request_context,
+)
 
 
-class TestJsonFormatterExcInfo:
-    def test_exc_info_adds_error_type_and_stack_trace(self):
-        """Covers logging_config.py:70-71 — exc_info branch in _JsonFormatter.format()."""
-        from hive.logging_config import _JsonFormatter
-
-        formatter = _JsonFormatter()
-        record = logging.LogRecord(
-            name="hive.test",
-            level=logging.ERROR,
-            pathname="",
-            lineno=0,
-            msg="Something went wrong",
-            args=(),
-            exc_info=None,
-        )
-
-        # Inject exc_info manually to simulate a logger.exception() call
-        try:
-            raise ValueError("test error")
-        except ValueError:
-            import sys
-
-            record.exc_info = sys.exc_info()
-
-        output = formatter.format(record)
-        data = json.loads(output)
-        assert data["error_type"] == "ValueError"
-        assert "stack_trace" in data
-        assert "test error" in data["stack_trace"]
+def test_configure_logging_installs_handler():
+    configure_logging("test-service")
+    logger = logging.getLogger("starter")
+    assert len(logger.handlers) >= 1
 
 
-class TestConfigureLoggingPackageNotFound:
-    def test_version_falls_back_to_app_version_env(self):
-        """Covers logging_config.py:87-88 — PackageNotFoundError fallback."""
-        from unittest.mock import patch
+def test_get_logger_returns_logger():
+    logger = get_logger("starter.test")
+    assert isinstance(logger, logging.Logger)
 
-        import hive.logging_config as lc
 
-        env = {k: v for k, v in os.environ.items()}
-        env["APP_VERSION"] = "test-fallback-version"
+def test_new_request_id_is_12_chars():
+    rid = new_request_id()
+    assert len(rid) == 12
+    assert rid.isalnum()
 
-        with (
-            patch.dict(os.environ, env),
-            patch(
-                "hive.logging_config.importlib.metadata.version",
-                side_effect=importlib.metadata.PackageNotFoundError,
-            ),
-        ):
-            lc.configure_logging("test-svc")
 
-        assert lc._VERSION == "test-fallback-version"
+def test_set_request_context_does_not_raise():
+    set_request_context("req-123", "client-456")
+
+
+def test_format_includes_client_id_when_set():
+    """Cover the client_id branch in _JsonFormatter.format()."""
+    import io
+
+    configure_logging("test-svc")
+    set_request_context("req-abc", "client-xyz")
+    buf = io.StringIO()
+    handler = logging.StreamHandler(buf)
+    handler.setFormatter(logging.Formatter())
+    logger = get_logger("starter")
+    # Temporarily add a plain handler to capture the JSON output
+    from starter.logging_config import _JsonFormatter
+
+    json_handler = logging.StreamHandler(buf)
+    json_handler.setFormatter(_JsonFormatter())
+    logger.addHandler(json_handler)
+    logger.info("test message with client")
+    logger.removeHandler(json_handler)
+    output = buf.getvalue()
+    assert "client-xyz" in output
+    # Reset context
+    set_request_context("", "")
+
+
+def test_format_includes_exception_info():
+    """Cover the exc_info branch in _JsonFormatter.format()."""
+    import json as json_mod
+    import sys
+
+    from starter.logging_config import _JsonFormatter
+
+    formatter = _JsonFormatter()
+    try:
+        raise ValueError("test error")
+    except ValueError:
+        exc_info = sys.exc_info()
+
+    record = logging.LogRecord(
+        name="test",
+        level=logging.ERROR,
+        pathname="",
+        lineno=0,
+        msg="boom",
+        args=(),
+        exc_info=exc_info,
+    )
+    result = formatter.format(record)
+    data = json_mod.loads(result)
+    assert "error_type" in data
+    assert data["error_type"] == "ValueError"
+    assert "stack_trace" in data
