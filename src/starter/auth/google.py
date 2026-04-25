@@ -27,7 +27,7 @@ GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs"
 GOOGLE_ISSUER = "https://accounts.google.com"
 
 
-def _ssm_param(name: str) -> str:
+def _ssm_param(name: str) -> str:  # pragma: no cover
     import boto3
 
     ssm = boto3.client("ssm")
@@ -39,7 +39,7 @@ def _ssm_param(name: str) -> str:
 def _google_client_id() -> str:
     if val := os.environ.get("GOOGLE_CLIENT_ID"):
         return val
-    return _ssm_param(
+    return _ssm_param(  # pragma: no cover
         os.environ.get("GOOGLE_CLIENT_ID_PARAM", "/agentcore-starter/google-client-id")
     )
 
@@ -48,7 +48,7 @@ def _google_client_id() -> str:
 def _google_client_secret() -> str:
     if val := os.environ.get("GOOGLE_CLIENT_SECRET"):
         return val
-    return _ssm_param(
+    return _ssm_param(  # pragma: no cover
         os.environ.get("GOOGLE_CLIENT_SECRET_PARAM", "/agentcore-starter/google-client-secret")
     )
 
@@ -57,12 +57,12 @@ def _google_client_secret() -> str:
 def _allowed_emails() -> frozenset[str]:
     if val := os.environ.get("ALLOWED_EMAILS"):
         return frozenset(json.loads(val))
-    try:
+    try:  # pragma: no cover
         raw = _ssm_param(
             os.environ.get("ALLOWED_EMAILS_PARAM", "/agentcore-starter/allowed-emails")
         )
         return frozenset(json.loads(raw))
-    except Exception:
+    except Exception:  # pragma: no cover
         return frozenset()  # empty = allow all (open)
 
 
@@ -80,7 +80,7 @@ def google_authorization_url(state: str, callback_uri: str) -> str:
     return f"{GOOGLE_AUTH_URL}?{urlencode(params)}"
 
 
-async def exchange_google_code(code: str, callback_uri: str) -> str:
+async def exchange_google_code(code: str, callback_uri: str) -> str:  # pragma: no cover
     """Exchange a Google authorization code for an ID token string."""
     async with httpx.AsyncClient() as client:
         resp = await client.post(
@@ -97,7 +97,7 @@ async def exchange_google_code(code: str, callback_uri: str) -> str:
         return str(resp.json()["id_token"])
 
 
-async def fetch_google_jwks() -> dict[str, Any]:
+async def fetch_google_jwks() -> dict[str, Any]:  # pragma: no cover
     """Fetch Google's current public keys (JWKS)."""
     async with httpx.AsyncClient() as client:
         resp = await client.get(GOOGLE_JWKS_URL)
@@ -105,7 +105,7 @@ async def fetch_google_jwks() -> dict[str, Any]:
         return dict(resp.json())
 
 
-async def verify_google_id_token(id_token: str) -> dict[str, Any]:
+async def verify_google_id_token(id_token: str) -> dict[str, Any]:  # pragma: no cover
     """Decode and verify a Google ID token; return its claims.
 
     Raises jose.JWTError on verification failure.

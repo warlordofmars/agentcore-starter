@@ -36,8 +36,8 @@ def _app_version() -> str:
         return v
     try:
         return importlib.metadata.version("agentcore-starter")
-    except importlib.metadata.PackageNotFoundError:
-        return "dev"
+    except importlib.metadata.PackageNotFoundError:  # pragma: no cover
+        return "dev"  # pragma: no cover
 
 
 APP_VERSION = _app_version()

@@ -175,7 +175,7 @@ def lint_infra(ctx):
 @task
 def typecheck(ctx):
     """Type-check backend with mypy"""
-    ctx.run("uv run mypy src/hive", pty=True)
+    ctx.run("uv run mypy src/starter", pty=True)
 
 
 @task

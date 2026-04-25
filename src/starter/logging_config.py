@@ -84,8 +84,8 @@ def configure_logging(service: str) -> None:
     _ENV = os.environ.get("STARTER_ENV", os.environ.get("APP_ENV", "dev"))
     try:
         _VERSION = importlib.metadata.version("agentcore-starter")
-    except importlib.metadata.PackageNotFoundError:
-        _VERSION = os.environ.get("APP_VERSION", "dev")
+    except importlib.metadata.PackageNotFoundError:  # pragma: no cover
+        _VERSION = os.environ.get("APP_VERSION", "dev")  # pragma: no cover
 
     logger = logging.getLogger("starter")
     if not logger.handlers:

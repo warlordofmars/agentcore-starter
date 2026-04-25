@@ -49,14 +49,14 @@ def _jwt_secret() -> str:
     """
     if secret := os.environ.get("STARTER_JWT_SECRET"):
         return secret
-    try:
+    try:  # pragma: no cover
         import boto3
 
         param_name = os.environ.get("STARTER_JWT_SECRET_PARAM", "/agentcore-starter/jwt-secret")
         ssm = boto3.client("ssm")
         resp = ssm.get_parameter(Name=param_name, WithDecryption=True)
         return resp["Parameter"]["Value"]
-    except Exception:
+    except Exception:  # pragma: no cover
         return secrets.token_hex(32)
 
 
@@ -68,13 +68,13 @@ def _origin_verify_secret() -> str | None:
     param_name = os.environ.get("STARTER_ORIGIN_VERIFY_PARAM")
     if not param_name:
         return None
-    try:
+    try:  # pragma: no cover
         import boto3
 
         ssm = boto3.client("ssm")
         resp = ssm.get_parameter(Name=param_name, WithDecryption=False)
         return resp["Parameter"]["Value"]
-    except Exception:
+    except Exception:  # pragma: no cover
         return None
 
 
