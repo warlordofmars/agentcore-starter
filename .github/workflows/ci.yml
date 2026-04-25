@@ -37,15 +37,15 @@ jobs:
         run: uv run ruff format --check src tests
 
       - name: mypy
-        run: uv run mypy src/hive
+        run: uv run mypy src/starter
 
       - name: Copyright headers
         run: uv run python scripts/check_copyright.py
 
       - name: OpenAPI spec drift check (#421)
         env:
-          HIVE_JWT_SECRET: ci-check
-          HIVE_TABLE_NAME: hive-openapi-check
+          STARTER_JWT_SECRET: ci-check
+          STARTER_TABLE_NAME: starter-openapi-check
         run: |
           uv run inv export-openapi --out /tmp/openapi.json
           diff -u docs-site/public/openapi.json /tmp/openapi.json \
@@ -139,7 +139,7 @@ jobs:
         run: uv sync --all-extras
 
       - name: Run unit tests with coverage
-        run: uv run pytest tests/unit -v --cov=hive --cov-report=xml:coverage-unit.xml
+        run: uv run pytest tests/unit -v --cov=src/starter --cov-report=xml:coverage-unit.xml
 
       - name: Write coverage summary
         if: always()
@@ -177,9 +177,9 @@ jobs:
           AWS_ACCESS_KEY_ID: local
           AWS_SECRET_ACCESS_KEY: local
           AWS_DEFAULT_REGION: us-east-1
-          HIVE_JWT_SECRET: test-secret
-          HIVE_TABLE_NAME: hive-integration
-        run: uv run pytest tests/unit tests/integration -v --cov=hive --cov-report=xml:coverage-combined.xml --cov-fail-under=100
+          STARTER_JWT_SECRET: test-secret
+          STARTER_TABLE_NAME: starter-integration
+        run: uv run pytest tests/unit tests/integration -v --cov=src/starter --cov-report=xml:coverage-combined.xml --cov-fail-under=100
 
       - name: Write coverage summary
         if: always()
@@ -334,7 +334,7 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
           curl -s -u "$SONAR_TOKEN:" \
-            "https://sonarcloud.io/api/issues/search?projectKeys=warlordofmars_hive&resolved=false&types=VULNERABILITY,SECURITY_HOTSPOT&ps=500" \
+            "https://sonarcloud.io/api/issues/search?projectKeys=warlordofmars_agentcore-starter&resolved=false&types=VULNERABILITY,SECURITY_HOTSPOT&ps=500" \
             -o sonar-issues.json
           python3 scripts/sonar_to_sarif.py sonar-issues.json sonar.sarif
 
@@ -449,11 +449,11 @@ jobs:
 
       - name: Synth prod stack
         working-directory: infra
-        run: cdk synth HiveStack --no-staging -c env=prod -c hosted_zone_id=${{ vars.HOSTED_ZONE_ID }}
+        run: cdk synth AgentCoreStarterStack --no-staging -c env=prod -c hosted_zone_id=${{ vars.HOSTED_ZONE_ID }}
 
       - name: Synth dev stack
         working-directory: infra
-        run: cdk synth HiveStack-dev --no-staging -c env=dev -c hosted_zone_id=${{ vars.HOSTED_ZONE_ID }}
+        run: cdk synth AgentCoreStarterStack-dev --no-staging -c env=dev -c hosted_zone_id=${{ vars.HOSTED_ZONE_ID }}
 
       - name: Trivy — IaC scan (table, for log visibility)
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
@@ -526,7 +526,7 @@ jobs:
     env:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     outputs:
-      mcp_url: ${{ steps.urls.outputs.mcp_url }}
+      
       api_url: ${{ steps.urls.outputs.api_url }}
       ui_url: ${{ steps.urls.outputs.ui_url }}
     steps:
@@ -572,10 +572,10 @@ jobs:
       - name: Export stack URLs
         id: urls
         run: |
-          STACK=HiveStack-dev
+          STACK=AgentCoreStarterStack-dev
           query() { aws cloudformation describe-stacks --stack-name $STACK --region us-east-1 \
             --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
-          echo "mcp_url=$(query McpFunctionUrl)" >> "$GITHUB_OUTPUT"
+          echo "api_url_direct=$(query ApiFunctionUrl)" >> "$GITHUB_OUTPUT"
           echo "api_url=$(query ApiFunctionUrl)"  >> "$GITHUB_OUTPUT"
           echo "ui_url=$(query UiUrl)"            >> "$GITHUB_OUTPUT"
 
@@ -590,7 +590,7 @@ jobs:
               "text": ":white_check_mark: Deploy to *dev* succeeded",
               "attachments": [{
                 "color": "good",
-                "text": "MCP: ${{ steps.urls.outputs.mcp_url }}\nAPI: ${{ steps.urls.outputs.api_url }}\nUI: ${{ steps.urls.outputs.ui_url }}"
+                "text": "API: ${{ steps.urls.outputs.api_url }}\nUI: ${{ steps.urls.outputs.ui_url }}"
               }]
             }
 
@@ -631,44 +631,44 @@ jobs:
 
       - name: Run auth + MCP e2e tests
         env:
-          HIVE_API_URL: ${{ needs.deploy-dev.outputs.api_url }}
-          HIVE_MCP_URL: ${{ needs.deploy-dev.outputs.mcp_url }}
-          HIVE_E2E_EMAIL: ${{ vars.HIVE_ADMIN_EMAIL }}
+          STARTER_API_URL: ${{ needs.deploy-dev.outputs.api_url }}
+          STARTER_MCP_URL: ${{ needs.deploy-dev.outputs.mcp_url }}
+          STARTER_ADMIN_EMAIL: ${{ vars.STARTER_ADMIN_EMAIL }}
         run: uv run pytest tests/e2e/test_auth_e2e.py tests/e2e/test_mcp_e2e.py -v
 
       - name: Run admin metrics e2e tests
         env:
-          HIVE_API_URL: ${{ needs.deploy-dev.outputs.api_url }}
-          HIVE_ADMIN_EMAIL: ${{ vars.HIVE_ADMIN_EMAIL }}
+          STARTER_API_URL: ${{ needs.deploy-dev.outputs.api_url }}
+          STARTER_ADMIN_EMAIL: ${{ vars.STARTER_ADMIN_EMAIL }}
         run: uv run pytest tests/e2e/test_admin_e2e.py -v
 
       - name: Run UI e2e tests (Playwright)
         env:
-          HIVE_API_URL: ${{ needs.deploy-dev.outputs.api_url }}
-          HIVE_UI_URL: ${{ needs.deploy-dev.outputs.ui_url }}
+          STARTER_API_URL: ${{ needs.deploy-dev.outputs.api_url }}
+          STARTER_UI_URL: ${{ needs.deploy-dev.outputs.ui_url }}
         run: uv run pytest tests/e2e/test_ui_e2e.py -v
 
       - name: Run docs e2e tests (Playwright)
         env:
-          HIVE_UI_URL: ${{ needs.deploy-dev.outputs.ui_url }}
+          STARTER_UI_URL: ${{ needs.deploy-dev.outputs.ui_url }}
         run: uv run pytest tests/e2e/test_docs_e2e.py -v
 
       - name: Run Dashboard e2e tests (Playwright)
         env:
-          HIVE_UI_URL: ${{ needs.deploy-dev.outputs.ui_url }}
-          HIVE_ADMIN_EMAIL: ${{ vars.HIVE_ADMIN_EMAIL }}
+          STARTER_UI_URL: ${{ needs.deploy-dev.outputs.ui_url }}
+          STARTER_ADMIN_EMAIL: ${{ vars.STARTER_ADMIN_EMAIL }}
         run: uv run pytest tests/e2e/test_dashboard_e2e.py -v
 
       - name: Issue synthetic token via PKCE bypass
         id: synth-token
         env:
-          HIVE_API_URL: ${{ needs.deploy-dev.outputs.api_url }}
+          STARTER_API_URL: ${{ needs.deploy-dev.outputs.api_url }}
         run: |
           TOKEN=$(uv run python - <<'PYEOF'
           import base64, hashlib, os, secrets
           import httpx
 
-          api = os.environ["HIVE_API_URL"].rstrip("/")
+          api = os.environ["STARTER_API_URL"].rstrip("/")
           verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()
           challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
 
@@ -686,7 +686,7 @@ jobs:
               })
               location = auth.headers.get("location", "")
               if "accounts.google.com" in location:
-                  raise RuntimeError("Google OAuth redirect — HIVE_BYPASS_GOOGLE_AUTH not enabled on dev")
+                  raise RuntimeError("Google OAuth redirect — STARTER_BYPASS_GOOGLE_AUTH not enabled on dev")
               code = location.split("code=")[1].split("&")[0]
 
               token_resp = http.post("/oauth/token", data={
@@ -702,9 +702,9 @@ jobs:
 
       - name: Run synthetic traffic (dev)
         env:
-          HIVE_API_URL: ${{ needs.deploy-dev.outputs.ui_url }}
-          HIVE_MCP_URL: ${{ needs.deploy-dev.outputs.ui_url }}
-          HIVE_BEARER_TOKEN: ${{ steps.synth-token.outputs.token }}
+          STARTER_API_URL: ${{ needs.deploy-dev.outputs.ui_url }}
+          STARTER_MCP_URL: ${{ needs.deploy-dev.outputs.ui_url }}
+          STARTER_BEARER_TOKEN: ${{ steps.synth-token.outputs.token }}
         run: uv run python scripts/synthetic_traffic.py
 
       - name: Notify Slack — e2e failure
@@ -770,7 +770,7 @@ jobs:
     env:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     outputs:
-      mcp_url: ${{ steps.urls.outputs.mcp_url }}
+      
       api_url: ${{ steps.urls.outputs.api_url }}
       ui_url: ${{ steps.urls.outputs.ui_url }}
     steps:
@@ -817,10 +817,10 @@ jobs:
       - name: Export stack URLs
         id: urls
         run: |
-          STACK=HiveStack
+          STACK=AgentCoreStarterStack
           query() { aws cloudformation describe-stacks --stack-name $STACK --region us-east-1 \
             --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
-          echo "mcp_url=$(query McpFunctionUrl)" >> "$GITHUB_OUTPUT"
+          echo "api_url_direct=$(query ApiFunctionUrl)" >> "$GITHUB_OUTPUT"
           echo "api_url=$(query ApiFunctionUrl)"  >> "$GITHUB_OUTPUT"
           echo "ui_url=$(query UiUrl)"            >> "$GITHUB_OUTPUT"
 
@@ -835,7 +835,7 @@ jobs:
               "text": ":white_check_mark: Deploy to *prod* succeeded — version `${{ needs.release.outputs.version }}`",
               "attachments": [{
                 "color": "good",
-                "text": "MCP: ${{ steps.urls.outputs.mcp_url }}\nAPI: ${{ steps.urls.outputs.api_url }}\nUI: ${{ steps.urls.outputs.ui_url }}"
+                "text": "API: ${{ steps.urls.outputs.api_url }}\nUI: ${{ steps.urls.outputs.ui_url }}"
               }]
             }
 
@@ -871,13 +871,13 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
 
-      # All e2e tests require HIVE_BYPASS_GOOGLE_AUTH which is dev-only.
+      # All e2e tests require STARTER_BYPASS_GOOGLE_AUTH which is dev-only.
       # Run a lightweight smoke test instead — just verify the prod API is up.
       - name: Smoke test prod API
         env:
-          HIVE_API_URL: ${{ needs.deploy-prod.outputs.api_url }}
+          STARTER_API_URL: ${{ needs.deploy-prod.outputs.api_url }}
         run: |
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$HIVE_API_URL/health")
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$STARTER_API_URL/health")
           echo "Health check status: $STATUS"
           [ "$STATUS" = "200" ] || (echo "Prod health check failed!" && exit 1)
 
