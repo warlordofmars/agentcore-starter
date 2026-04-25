@@ -30,3 +30,4 @@ What are the trade-offs, follow-on work, or constraints this decision creates?
 | [0003](0003-inline-agent-and-session-memory.md) | Inline Agent and session memory conventions | Accepted |
 | [0004](0004-agentcore-runtime-feasibility.md) | AWS Bedrock AgentCore Runtime + Memory feasibility for chat-app fork | Accepted |
 | [0005](0005-orchestrator-agent.md) | Orchestrator agent for cross-session sequencing and delegation | Accepted |
+| [0006](0006-skills-system.md) | Skills system for agent-loaded reference material | Accepted |
