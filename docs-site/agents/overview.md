@@ -5,7 +5,7 @@ AgentCore Starter ships two layers of Bedrock integration out of the box:
 | Layer | Module | When to use |
 |---|---|---|
 | **Raw Converse** | `starter.agents.bedrock` | Simple single-turn prompts; full control over messages and token counts |
-| **Inline Agent** | `starter.agents.agentcore` | Multi-turn conversations with session memory; add action groups for tool-calling |
+| **Inline Agent** | `starter.agents.inline_agent` | Multi-turn conversations with session memory; add action groups for tool-calling |
 
 Both layers expose non-streaming and SSE streaming variants, and both run on the same Lambda function behind the same Function URL.
 

@@ -22,7 +22,7 @@ Collect everything that should potentially be documented:
 grep -rn "@router\." src/starter/api/ --include="*.py" | grep -E "@router\.(get|post|put|delete|patch)"
 
 # Public agent functions (non-private, exported from modules)
-grep -n "^def [^_]" src/starter/agents/bedrock.py src/starter/agents/agentcore.py
+grep -n "^def [^_]" src/starter/agents/bedrock.py src/starter/agents/inline_agent.py
 
 # Environment variables referenced in source (these may need documenting)
 grep -rn 'os\.environ' src/starter/ --include="*.py" | grep -v test | grep -v '\.pyc'

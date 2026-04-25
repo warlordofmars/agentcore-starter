@@ -209,7 +209,7 @@ HUMAN_INPUT_REQUIRED: Could not determine root cause. Next diagnostic step:
 | All requests → 403 | Token issuer mismatch after env var change | `STARTER_JWT_ISSUER` env var vs token `iss` claim |
 | Auth works, Bedrock → 403 | Lambda IAM role missing `bedrock:InvokeModel` | `infra/stacks/starter_stack.py` Bedrock policy |
 | 200 but body is empty | AWSLWA not configured; Mangum buffering stream | `AWS_LWA_INVOKE_MODE` env var, Function URL `invoke_mode` |
-| Session not found | `session_id` namespace mismatch | `agentcore.py` `_bedrock_session_id()` prefix |
+| Session not found | `session_id` namespace mismatch | `inline_agent.py` `_bedrock_session_id()` prefix |
 | Cold start 504 | Lambda memory too low for uvicorn startup | Lambda `memory_size` in CDK |
 | DynamoDB ResourceNotFound | Table name env var wrong or table doesn't exist | `TABLE_NAME` env var in Lambda config |
 

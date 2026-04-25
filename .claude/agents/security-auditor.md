@@ -52,7 +52,7 @@ grep -n "ttl" src/starter/storage.py src/starter/auth/tokens.py
 ```
 
 ### Session namespace
-Read `src/starter/agents/agentcore.py`:
+Read `src/starter/agents/inline_agent.py`:
 
 - `sessionId` passed to `invoke_inline_agent` must be prefixed with the authenticated user's `sub`: `f"{user_id}:{session_id}"`
 - The prefixed form must not appear in any API response body

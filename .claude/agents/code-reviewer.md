@@ -151,7 +151,7 @@ Violations → `FAIL`.
 
 ### 10. Session namespace convention (inline agent)
 
-For any diff touching `src/starter/agents/agentcore.py` or code that calls `invoke_inline_agent`:
+For any diff touching `src/starter/agents/inline_agent.py` or code that calls `invoke_inline_agent`:
 
 - `sessionId` passed to Bedrock must be prefixed with the authenticated user's identity: `f"{user_id}:{session_id}"`
 - The prefixed form must not appear in any response body — only the caller's opaque `session_id` is echoed back
