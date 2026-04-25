@@ -1,0 +1,28 @@
+# Architecture Decision Records
+
+Short, durable records of significant technical decisions made in this project.
+
+## Format
+
+Each ADR is a markdown file named `NNNN-short-title.md` with this structure:
+
+```markdown
+# ADR-NNNN: Title
+Date: YYYY-MM-DD  
+Status: Accepted | Deprecated | Superseded by ADR-XXXX
+
+## Context
+What situation or problem prompted this decision?
+
+## Decision
+What did we decide to do?
+
+## Consequences
+What are the trade-offs, follow-on work, or constraints this decision creates?
+```
+
+## Index
+
+| ADR | Title | Status |
+|---|---|---|
+| [0001](0001-bedrock-converse-api.md) | Bedrock Converse API as the agent LLM interface | Accepted |

@@ -21,6 +21,7 @@ dev = [
     "invoke>=2.2.0",
     "moto>=5.1.22",
     "mypy>=1.19.1",
+    "mypy-boto3-bedrock-runtime>=1.42.82",
     "pip-audit>=2.9.0",
     "playwright>=1.40.0",
     "pytest>=9.0.2",

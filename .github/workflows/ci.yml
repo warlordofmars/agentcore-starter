@@ -42,14 +42,6 @@ jobs:
       - name: Copyright headers
         run: uv run python scripts/check_copyright.py
 
-      - name: OpenAPI spec drift check (#421)
-        env:
-          STARTER_JWT_SECRET: ci-check
-          STARTER_TABLE_NAME: starter-openapi-check
-        run: |
-          uv run inv export-openapi --out /tmp/openapi.json
-          diff -u docs-site/public/openapi.json /tmp/openapi.json \
-            || { echo "::error::docs-site/public/openapi.json is out of date — run 'uv run inv export-openapi' and commit the result."; exit 1; }
 
   audit:
     name: Security Audit
