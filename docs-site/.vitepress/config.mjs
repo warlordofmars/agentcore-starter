@@ -43,6 +43,13 @@ export default defineConfig({
           { text: "Quick start", link: "/getting-started/quick-start" },
         ],
       },
+      {
+        text: "Building agents",
+        items: [
+          { text: "Overview", link: "/agents/overview" },
+          { text: "Sessions & memory", link: "/agents/sessions" },
+        ],
+      },
     ],
 
     socialLinks: [],
