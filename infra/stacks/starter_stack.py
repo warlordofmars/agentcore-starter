@@ -268,6 +268,8 @@ class AgentCoreStarterStack(cdk.Stack):
             "APP_VERSION": app_version,
             # Used by EMF metrics as the "Environment" dimension.
             "STARTER_ENV": env_name,
+            # Default Bedrock model for agent endpoints.
+            "BEDROCK_MODEL_ID": "anthropic.claude-sonnet-4-6",
         }
 
         # In non-prod environments, bypass Google OAuth so automated e2e tests
@@ -307,6 +309,15 @@ class AgentCoreStarterStack(cdk.Stack):
             iam.PolicyStatement(
                 actions=["ce:GetCostAndUsage"],
                 resources=["*"],
+            )
+        )
+        api_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["bedrock:InvokeModel"],
+                resources=[
+                    f"arn:aws:bedrock:{self.region}::foundation-model/anthropic.claude-sonnet-4-6",
+                    f"arn:aws:bedrock:{self.region}::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
+                ],
             )
         )
 
