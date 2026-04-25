@@ -7,7 +7,7 @@ Uses Google as an identity provider for human-facing management UI login.
 Configuration (env vars or SSM parameters):
   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_ID_PARAM
   GOOGLE_CLIENT_SECRET / GOOGLE_CLIENT_SECRET_PARAM
-  ALLOWED_EMAILS / ALLOWED_EMAILS_PARAM  (JSON array; empty = allow all)
+  ALLOWED_EMAILS / ALLOWED_EMAILS_PARAM  (JSON array; empty = deny all)
 """
 
 from __future__ import annotations
@@ -63,7 +63,7 @@ def _allowed_emails() -> frozenset[str]:
         )
         return frozenset(json.loads(raw))
     except Exception:  # pragma: no cover
-        return frozenset()  # empty = allow all (open)
+        return frozenset()  # empty = deny all (safer default)
 
 
 def google_authorization_url(state: str, callback_uri: str) -> str:
@@ -125,12 +125,12 @@ async def verify_google_id_token(id_token: str) -> dict[str, Any]:  # pragma: no
 def is_email_allowed(email: str) -> bool:
     """Return True if the email is permitted to access the application.
 
-    An empty allowlist means open access (allow all verified Google accounts).
+    An empty allowlist denies all access. This is the safer default: a
+    freshly-deployed stack ships with ``ALLOWED_EMAILS="[]"`` and must
+    not grant management access to any verified Google account until the
+    deployer explicitly populates the list.
     """
-    allowed = _allowed_emails()
-    if not allowed:
-        return True
-    return email in allowed
+    return email in _allowed_emails()
 
 
 def is_admin_email(email: str) -> bool:

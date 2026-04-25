@@ -27,6 +27,7 @@ from starter.auth.google import (
     exchange_google_code,
     google_authorization_url,
     is_admin_email,
+    is_email_allowed,
     verify_google_id_token,
 )
 from starter.auth.tokens import ISSUER, issue_mgmt_jwt
@@ -137,6 +138,10 @@ async def mgmt_callback(
         raise HTTPException(status_code=400, detail="Google email is not verified")
 
     email: str = claims["email"]
+    if not is_email_allowed(email):
+        logger.warning("Management login rejected — email not in allowlist: %s", email)
+        raise HTTPException(status_code=403, detail="Email not authorised")
+
     display_name: str = claims.get("name", email.split("@")[0])
 
     user = _make_user(email, display_name)

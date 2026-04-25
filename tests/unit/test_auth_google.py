@@ -67,9 +67,10 @@ def test_is_email_allowed_when_not_in_list(monkeypatch):
     assert is_email_allowed("other@test.com") is False
 
 
-def test_is_email_allowed_empty_list_allows_all(monkeypatch):
+def test_is_email_allowed_empty_list_denies_all(monkeypatch):
+    """Empty allowlist denies all — safer default for freshly-deployed stacks."""
     monkeypatch.setenv("ALLOWED_EMAILS", "[]")
-    assert is_email_allowed("anyone@example.com") is True
+    assert is_email_allowed("anyone@example.com") is False
 
 
 def test_is_admin_email_when_listed(monkeypatch):

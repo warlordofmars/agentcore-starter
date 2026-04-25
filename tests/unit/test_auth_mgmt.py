@@ -115,7 +115,7 @@ def test_mgmt_callback_invalid_state():
 
 
 def test_mgmt_callback_success(monkeypatch):
-    monkeypatch.setenv("ALLOWED_EMAILS", "[]")
+    monkeypatch.setenv("ALLOWED_EMAILS", '["user@example.com"]')
     state = _create_pending_state()
     with (
         patch(
@@ -136,6 +136,124 @@ def test_mgmt_callback_success(monkeypatch):
         resp = _client.get(f"/auth/callback?code=authcode&state={state}")
     assert resp.status_code == 200
     assert "starter_mgmt_token" in resp.text
+
+
+def test_mgmt_callback_unlisted_email_with_populated_allowlist_returns_403(monkeypatch):
+    """Verified email not in a populated allowlist must be rejected with 403."""
+    monkeypatch.setenv("ALLOWED_EMAILS", '["admin@example.com"]')
+    state = _create_pending_state()
+    with (
+        patch(
+            "starter.auth.mgmt_auth.exchange_google_code",
+            new=AsyncMock(return_value="fake-id-token"),
+        ),
+        patch(
+            "starter.auth.mgmt_auth.verify_google_id_token",
+            new=AsyncMock(
+                return_value={
+                    "email": "stranger@example.com",
+                    "email_verified": True,
+                    "name": "Stranger",
+                }
+            ),
+        ),
+    ):
+        resp = _client.get(f"/auth/callback?code=authcode&state={state}")
+    assert resp.status_code == 403
+    assert "starter_mgmt_token" not in resp.text
+
+
+def test_mgmt_callback_unlisted_email_with_empty_allowlist_returns_403(monkeypatch):
+    """Empty allowlist must deny all verified emails (deny-all default).
+
+    Regression for SEC-1: a freshly-deployed stack ships with
+    ALLOWED_EMAILS="[]" and must not mint a JWT to any verified Google
+    account until the deployer explicitly populates the list.
+    """
+    monkeypatch.setenv("ALLOWED_EMAILS", "[]")
+    state = _create_pending_state()
+    with (
+        patch(
+            "starter.auth.mgmt_auth.exchange_google_code",
+            new=AsyncMock(return_value="fake-id-token"),
+        ),
+        patch(
+            "starter.auth.mgmt_auth.verify_google_id_token",
+            new=AsyncMock(
+                return_value={
+                    "email": "anyone@example.com",
+                    "email_verified": True,
+                    "name": "Anyone",
+                }
+            ),
+        ),
+    ):
+        resp = _client.get(f"/auth/callback?code=authcode&state={state}")
+    assert resp.status_code == 403
+    assert "starter_mgmt_token" not in resp.text
+
+
+def test_mgmt_callback_listed_admin_email_returns_admin_role(monkeypatch):
+    """Listed email passes the gate and receives role=admin."""
+    monkeypatch.setenv("ALLOWED_EMAILS", '["admin@example.com"]')
+    state = _create_pending_state()
+    with (
+        patch(
+            "starter.auth.mgmt_auth.exchange_google_code",
+            new=AsyncMock(return_value="fake-id-token"),
+        ),
+        patch(
+            "starter.auth.mgmt_auth.verify_google_id_token",
+            new=AsyncMock(
+                return_value={
+                    "email": "admin@example.com",
+                    "email_verified": True,
+                    "name": "Admin",
+                }
+            ),
+        ),
+        patch("starter.auth.mgmt_auth.issue_mgmt_jwt") as mock_issue,
+    ):
+        mock_issue.return_value = "stub-jwt"
+        resp = _client.get(f"/auth/callback?code=authcode&state={state}")
+    assert resp.status_code == 200
+    assert mock_issue.call_args.args[0]["role"] == "admin"
+
+
+def test_mgmt_callback_listed_non_admin_email_returns_user_role(monkeypatch):
+    """The allowlist gate must not re-derive role; role still flows from
+    is_admin_email().
+
+    Today both signals read from the same ``ALLOWED_EMAILS`` set, so any
+    listed email is also admin in production. This test mocks
+    ``is_admin_email`` to False to assert that the new gate did not collapse
+    the two checks — if the lists are ever split, role=user becomes a real
+    code path and this test is the regression guard.
+    """
+    monkeypatch.setenv("ALLOWED_EMAILS", '["user@example.com"]')
+    state = _create_pending_state()
+    with (
+        patch(
+            "starter.auth.mgmt_auth.exchange_google_code",
+            new=AsyncMock(return_value="fake-id-token"),
+        ),
+        patch(
+            "starter.auth.mgmt_auth.verify_google_id_token",
+            new=AsyncMock(
+                return_value={
+                    "email": "user@example.com",
+                    "email_verified": True,
+                    "name": "Regular User",
+                }
+            ),
+        ),
+        patch("starter.auth.mgmt_auth.is_admin_email", return_value=False),
+        patch("starter.auth.mgmt_auth.issue_mgmt_jwt") as mock_issue,
+    ):
+        mock_issue.return_value = "stub-jwt"
+        resp = _client.get(f"/auth/callback?code=authcode&state={state}")
+    assert resp.status_code == 200
+    assert mock_issue.call_args.args[0]["role"] == "user"
 
 
 def test_mgmt_callback_unverified_email(monkeypatch):
