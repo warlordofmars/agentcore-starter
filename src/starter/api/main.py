@@ -11,7 +11,6 @@ from __future__ import annotations
 import importlib.metadata
 import os
 import time
-from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -128,14 +127,3 @@ app.include_router(agents_router, prefix="/api")
 @app.get("/health", include_in_schema=False)
 async def health() -> dict[str, str]:
     return {"status": "ok", "version": APP_VERSION}
-
-
-def lambda_handler(event: dict[str, Any], context: object) -> dict[str, Any]:  # pragma: no cover
-    """AWS Lambda + Function URL handler for the management API."""
-    try:
-        from mangum import Mangum
-    except ImportError as exc:
-        raise RuntimeError("mangum is required for Lambda deployment") from exc
-
-    handler = Mangum(app, lifespan="off")
-    return handler(event, context)  # type: ignore[arg-type]

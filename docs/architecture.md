@@ -20,9 +20,9 @@ Internal/contributor reference. Not part of the customer-facing docs site.
 
 AgentCore Starter exposes one Lambda-backed surface behind a single CloudFront distribution:
 
-| Surface | Path prefix | Lambda handler |
+| Surface | Path prefix | Lambda entrypoint |
 | --- | --- | --- |
-| Management API (FastAPI) + OAuth | `/api/*`, `/auth/*`, `/oauth/*`, `/.well-known/*` | `starter.api.main.lambda_handler` |
+| Management API (FastAPI) + OAuth | `/api/*`, `/auth/*`, `/oauth/*`, `/.well-known/*` | AWSLWA → uvicorn `starter.api.main:app` (see `run.sh`) |
 | Management UI (React SPA) | everything else | S3 → CloudFront (static) |
 | Docs site (VitePress) | `/docs/*` | S3 → CloudFront (static) |
 
