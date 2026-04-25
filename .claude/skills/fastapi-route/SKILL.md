@@ -1,0 +1,226 @@
+---
+name: fastapi-route
+description: Conventions for adding a new FastAPI endpoint to the management API — file location, router wiring, auth dependency, streaming pattern, test layout, coverage gate.
+status: full
+triggers:
+  paths:
+    - "src/starter/api/**.py"
+  areas:
+    - "api"
+---
+
+# fastapi-route
+
+Adding a FastAPI endpoint to the AgentCore Starter management API
+follows seven conventions. Each is mechanically checkable against
+the existing `src/starter/api/` code; the canonical examples are
+cited inline by file and line range.
+
+## 1. File location
+
+Endpoints live in `src/starter/api/<area>.py` where `<area>`
+matches the issue's area label. The current router files are:
+
+- `src/starter/api/agents.py` — agent invocation endpoints
+- `src/starter/api/csp.py` — CSP violation report receiver
+- `src/starter/api/main.py` — app construction, middleware,
+  `/health`. Do **not** add domain endpoints here; route handlers
+  go in dedicated router files.
+
+A new functional area (e.g. `users`, `admin`) → new file
+`src/starter/api/<area>.py` with its own `APIRouter`. Do not
+extend an existing router with unrelated routes — area-per-file is
+the discoverability contract.
+
+## 2. Router wiring in `main.py`
+
+Every router file is included from `src/starter/api/main.py` with
+`app.include_router(...)`. The current registrations live at
+`src/starter/api/main.py:115-124`:
+
+```python
+# OAuth 2.1 well-known discovery endpoints (unauthenticated)
+app.include_router(oauth_router)
+
+# Management UI auth endpoints (unauthenticated — issues mgmt JWTs)
+app.include_router(mgmt_auth_router)
+
+# CSP report receiver — unauthenticated by design
+app.include_router(csp_router, prefix="/api")
+
+# Agent scaffold endpoints (require management JWT)
+app.include_router(agents_router, prefix="/api")
+```
+
+Conventions:
+
+- Authenticated domain routers carry `prefix="/api"`.
+- Auth and OAuth discovery routers do **not** carry `/api`
+  (they expose well-known paths).
+- Add a one-line comment above each `include_router` call stating
+  the auth posture (unauthenticated / requires mgmt JWT / etc.).
+- Import the router as `<area>_router` (alias on import) to keep
+  the registration block readable.
+
+## 3. Auth dependency pattern
+
+Two auth dependencies are exported from
+`src/starter/api/_auth.py`:
+
+- `require_mgmt_user` (`src/starter/api/_auth.py:16-29`) — validate
+  a management JWT issued by the Google OAuth login flow. Returns
+  the JWT claims dict. Use for any endpoint hit by the management
+  UI or by an authenticated user agent.
+- `require_admin` (`src/starter/api/_auth.py:32-38`) — composes
+  `require_mgmt_user` and additionally requires `role == "admin"`.
+  Use for admin-only endpoints (user management, dashboard).
+
+Wire either one through `Depends(...)`:
+
+```python
+from typing import Any
+from fastapi import Depends
+from starter.api._auth import require_mgmt_user
+
+@router.post("/agents/echo")
+def echo(
+    body: EchoRequest,
+    _claims: dict[str, Any] = Depends(require_mgmt_user),
+) -> EchoResponse:
+    ...
+```
+
+Naming convention: bind the claims to `_claims` (leading
+underscore) when the handler does not consume them, and to
+`claims` when it does — for example `claims["sub"]` for the
+caller's user id. See `src/starter/api/agents.py:31-35` (unused)
+versus `src/starter/api/agents.py:94-98` (consumed).
+
+OAuth 2.1 access-token-protected endpoints (RFC 7591 / MCP-style)
+are not yet wired; this skill will be extended when that surface
+lands. For now: every authenticated endpoint uses
+`require_mgmt_user` or `require_admin`.
+
+## 4. Streaming pattern
+
+Streaming endpoints return
+`StreamingResponse(generator(), media_type="text/event-stream")`.
+The canonical example is
+`src/starter/api/agents.py:54-75`:
+
+```python
+@router.post("/agents/echo/stream")
+def echo_stream(
+    body: EchoRequest,
+    _claims: dict[str, Any] = Depends(require_mgmt_user),
+) -> StreamingResponse:
+    def _stream() -> Iterator[str]:
+        yield from converse_stream(
+            ConverseRequest(
+                messages=[BedrockMessage(role="user", content=body.message)],
+                system=body.system,
+            )
+        )
+
+    return StreamingResponse(_stream(), media_type="text/event-stream")
+```
+
+The SSE event schema is fixed by ADR-0002 §Decision #4:
+
+- `data: {"type": "delta", "text": "..."}` — incremental token
+- `data: {"type": "done", ...}` — final event with
+  metadata (`stop_reason`, token counts, `session_id`, etc.)
+
+Each event terminates with `\n\n`. The downstream generator
+function (e.g. `converse_stream` in
+`src/starter/agents/bedrock.py:54-93`) is responsible for emitting
+the wire-format strings. The route handler's only job is to
+delegate to that generator and wrap it in `StreamingResponse`.
+
+Lambda streaming caveat: in production the function runs behind
+AWS Lambda Web Adapter with `AWS_LWA_INVOKE_MODE=response_stream`
+(see ADR-0002). CloudFront may buffer SSE; for low-latency
+streaming clients should connect to the Function URL directly.
+
+## 5. Test structure
+
+Every new endpoint requires unit tests. Tests live alongside the
+existing suites under `tests/unit/test_<area>_api.py`. The
+canonical pattern is in `tests/unit/test_agents_api.py`:
+
+- Construct a `TestClient(app)` once at module scope.
+- Set `STARTER_JWT_SECRET` via `os.environ.setdefault` *before*
+  importing the app, so JWT issuance/validation works.
+- Provide an `_auth_headers()` helper that issues a real
+  management JWT via `issue_mgmt_jwt(...)` — do not mock the auth
+  dependency itself; mock the AWS boundary (`boto3` clients,
+  `converse`, `invoke`) instead.
+- Cover, at minimum:
+  1. **Auth required** — call without headers, assert 401 or 403.
+  2. **Happy path** — patch the AWS boundary, assert response
+     body shape and forwarded fields.
+  3. **Argument forwarding** — capture the call to the mocked
+     boundary and assert the request payload was constructed
+     correctly (system prompt, session id, user id from claims).
+
+For streaming endpoints add two more:
+
+- **Content type** — assert
+  `"text/event-stream" in resp.headers["content-type"]`.
+- **Event sequence** — split the response body on `\n\n`, parse
+  each `data: ` payload as JSON, assert the schema (`type` field
+  is `delta` then `done`).
+
+If the endpoint reads or writes DynamoDB, add an integration test
+under `tests/integration/test_<area>_api.py` that exercises the
+real DynamoDB Local instance via the existing `conftest.py`
+fixtures.
+
+## 6. 100% coverage gate
+
+CI fails below 100% line coverage. Two pitfalls recur in API
+code:
+
+- **Anonymous functions inside `StreamingResponse`** — vitest-style
+  v8 counters do not apply on the Python side, but the inner
+  `_stream` closure does need at least one test that drives it to
+  completion (see
+  `tests/unit/test_agents_api.py:91-116` for the pattern).
+- **Untested error branches** — every `raise HTTPException(...)`
+  needs a test that triggers it, even for trivial validation
+  paths. If a branch is genuinely unreachable, mark the line with
+  `# pragma: no cover` and a one-line comment explaining why; do
+  not lower the gate.
+
+Run the gate locally before opening a PR:
+
+```bash
+uv run inv pre-push
+```
+
+This runs lint + typecheck + unit tests + frontend tests with the
+same coverage threshold CI enforces.
+
+## 7. Copyright header
+
+Every new Python file starts with the copyright header from
+CLAUDE.md §Copyright headers:
+
+```python
+# Copyright (c) 2026 John Carter. All rights reserved.
+```
+
+When editing an existing file in a new calendar year, append the
+year to the existing line — do not duplicate the header.
+
+The `scripts/check_copyright.py` linter runs in `inv pre-push`
+and CI; a missing or malformed header fails the build.
+
+## See also
+
+- [`example.py`](./example.py) — a complete copy-pasteable
+  endpoint module covering all seven conventions.
+- ADR-0002 §Decision #4 — SSE event schema authority
+  (`docs/adr/0002-streaming-lambda-web-adapter.md`).
+- CLAUDE.md §Auth — auth posture across the codebase.
+- CLAUDE.md §Testing — coverage gate, fixture conventions.
