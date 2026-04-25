@@ -335,6 +335,17 @@ class AgentCoreStarterStack(cdk.Stack):
                 ],
             )
         )
+        # bedrock:InvokeInlineAgent is required for invoke_inline_agent calls.
+        # Inline agents are ephemeral (no pre-provisioned agent resource), so
+        # the resource ARN pattern covers all inline agent invocations in the account.
+        api_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["bedrock:InvokeInlineAgent"],
+                resources=[
+                    f"arn:aws:bedrock:{self.region}:{self.account}:agent/*",
+                ],
+            )
+        )
 
         api_fn = lambda_.Function(
             self,

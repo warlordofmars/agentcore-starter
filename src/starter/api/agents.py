@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from starter.agents.agentcore import InlineAgentRequest, invoke, invoke_stream
 from starter.agents.bedrock import BedrockMessage, ConverseRequest, converse, converse_stream
 from starter.api._auth import require_mgmt_user
 
@@ -69,6 +70,74 @@ def echo_stream(
                 messages=[BedrockMessage(role="user", content=body.message)],
                 system=body.system,
             )
+        )
+
+    return StreamingResponse(_stream(), media_type="text/event-stream")
+
+
+# ---------------------------------------------------------------------------
+# Inline agent endpoints (Bedrock Agents via invoke_inline_agent)
+# ---------------------------------------------------------------------------
+
+
+class AgentRequest(BaseModel):
+    message: str
+    session_id: str | None = None
+    instruction: str | None = None
+
+
+class AgentResponse(BaseModel):
+    reply: str
+    session_id: str
+
+
+@router.post("/agents/invoke", response_model=AgentResponse)
+def agent_invoke(
+    body: AgentRequest,
+    claims: dict[str, Any] = Depends(require_mgmt_user),
+) -> AgentResponse:
+    """Invoke a Bedrock inline agent and return the full response.
+
+    The agent maintains conversation history within a session — pass the same
+    ``session_id`` across turns to continue a conversation.  Omit it to start
+    a new session; the returned ``session_id`` can be stored and reused.
+
+    Session scope is automatically namespaced to the authenticated user so
+    sessions are never shared across users.
+    """
+    result = invoke(
+        InlineAgentRequest(
+            message=body.message,
+            session_id=body.session_id,
+            instruction=body.instruction,
+        ),
+        user_id=claims["sub"],
+    )
+    return AgentResponse(reply=result.reply, session_id=result.session_id)
+
+
+@router.post("/agents/invoke/stream")
+def agent_invoke_stream(
+    body: AgentRequest,
+    claims: dict[str, Any] = Depends(require_mgmt_user),
+) -> StreamingResponse:
+    """Streaming inline agent invocation — returns an SSE stream of agent reply chunks.
+
+    Event schema mirrors ``/agents/echo/stream``:
+
+    * ``{"type": "delta", "text": "..."}`` — incremental text chunk.
+    * ``{"type": "done", "session_id": "..."}`` — final event; ``session_id``
+      can be stored and reused to continue the conversation.
+    """
+
+    def _stream() -> Iterator[str]:
+        yield from invoke_stream(
+            InlineAgentRequest(
+                message=body.message,
+                session_id=body.session_id,
+                instruction=body.instruction,
+            ),
+            user_id=claims["sub"],
         )
 
     return StreamingResponse(_stream(), media_type="text/event-stream")

@@ -30,9 +30,14 @@ agentcore-starter/
 │       │   ├── tokens.py      # Token issuance + validation
 │       │   ├── google.py      # Google OAuth integration
 │       │   └── mgmt_auth.py   # Management API authentication
+│       ├── agents/
+│       │   ├── __init__.py
+│       │   ├── bedrock.py     # Converse + converse_stream (raw Bedrock)
+│       │   └── agentcore.py   # invoke + invoke_stream (Bedrock inline agent)
 │       └── api/
 │           ├── main.py        # FastAPI app + routes
 │           ├── admin.py       # Admin-only endpoints
+│           ├── agents.py      # Agent scaffold endpoints
 │           └── users.py       # User management endpoints
 ├── ui/
 │   ├── src/
@@ -206,6 +211,11 @@ re-derive these during design review — cite them.
   take a `workspace_id` / `namespace` param on every call. Scope comes
   from the token claim; agents register a new DCR client per context and
   swap tokens to switch.
+- **Agent session IDs are user-namespaced** — the `agentcore.py` wrapper
+  computes the Bedrock `sessionId` as `f"{jwt_sub}:{caller_session_id}"`.
+  Callers supply their own opaque `session_id`; the wrapper adds the user
+  prefix so sessions never bleed across users. The namespaced form is
+  internal — only the caller's `session_id` is echoed back in responses.
 
 ## UI conventions
 
