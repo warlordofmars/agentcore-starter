@@ -43,9 +43,10 @@ Path: `docs/adr/NNNN-kebab-title.md`.
   `0003-inline-agent-and-session-memory.md`,
   `0005-orchestrator-agent.md`,
   `0006-skills-system.md`.
-- **Long titles get abbreviated.** `0004-agentcore-runtime-feasibility.md`
-  is the longest filename in the set (40 chars before `.md`); aim for
-  a slug that reads cleanly when listed alongside the others.
+- **Long titles get abbreviated.** Existing slugs sit in the
+  18–36 character range (e.g. `0006-skills-system` at 18,
+  `0003-inline-agent-and-session-memory` at 36); aim for a slug
+  that reads cleanly when listed alongside the others.
 
 Long-form ADRs may ship a companion summary file using the
 `NNNN-<title>-summary.md` form — `0004-agentcore-runtime-feasibility-summary.md`
@@ -379,9 +380,12 @@ Across the existing six ADRs, the voice is:
   on first reference if the ADR is not the immediately
   preceding one. ADR-0006 §Consequences shows the path
   citation shape (`docs/adr/0005-orchestrator-agent.md`).
-- **Citations to issues use the `#NNN` form** — bare,
-  no leading "issue", and the issue body or PR description
-  carries the link.
+- **Citations to issues use the `#NNN` form** — bare in
+  most contexts (e.g. "tracked in #29"); the longer
+  "issue #NNN" form is also fine when the surrounding
+  prose reads better with it (ADR-0004 §Context line 7,
+  ADR-0005 §Consequences line 152). Either is valid; pick
+  whichever reads cleaner in the sentence.
 - **Citations to code use `path:line` or `path:line-line`**
   consistent with the rest of the project — see ADR-0006's
   references to skill frontmatter rules.
@@ -389,8 +393,11 @@ Across the existing six ADRs, the voice is:
 Sub-headings inside `## Context` or `## Decision` use H3
 (`### `). Lists use `-` for bullets, `1.` / `2.` for
 numbered items. Tables are fine for prefix taxonomies,
-quota lists, or alternative comparisons (ADR-0006 doesn't
-use tables; ADR-0004 §summary does).
+quota lists, or alternative comparisons — ADR-0004's
+"Integration options" table
+(`docs/adr/0004-agentcore-runtime-feasibility.md`, the
+Option / Description / Cost table inside `## Decision`)
+is the canonical example.
 
 ## See also
 
