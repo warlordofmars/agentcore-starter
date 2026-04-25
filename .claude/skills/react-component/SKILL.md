@@ -99,10 +99,14 @@ style:
 ```
 
 `code-reviewer` check 4 fails the build on any new hex / `rgb()`
-/ `hsl()` literal in `*.css`, `*.jsx`, or `*.js`. The only
-exception is `docs-site/.vitepress/theme/style.css` defining
-root-level variables — and the management UI is not the docs
-site.
+/ `hsl()` literal *consumed* in `*.css`, `*.jsx`, or `*.js`.
+**Defining** a root-level CSS variable that holds a literal —
+in `ui/src/index.css` (the management UI's `:root` and
+`[data-theme="dark"]` blocks) or in
+`docs-site/.vitepress/theme/style.css` (the docs site's
+equivalent) — is the one allowed shape. The rule's intent is
+"no inline literals at the use site"; defining a token's value
+is the legitimate way the literal enters the codebase.
 
 Two slips that recur:
 
@@ -111,10 +115,12 @@ Two slips that recur:
   from the token set. The `TOOL_COLORS` and `SERVICE_COLORS`
   maps in `ui/src/components/Dashboard.jsx:20-32` predate this
   rule and still embed hex literals; do **not** copy that
-  pattern for new charts. Instead, add `--chart-<name>` tokens
-  to `ui/src/index.css` and reference them via
-  `var(--chart-<name>)`. The Dashboard maps will be migrated
-  separately.
+  pattern for new charts. Instead, add a `--chart-<name>` block
+  to the existing `:root` / `[data-theme="dark"]` token blocks
+  in `ui/src/index.css` (the only sanctioned place for new
+  literals — see above) and reference each colour via
+  `var(--chart-<name>)` from the chart config. The Dashboard
+  maps will be migrated separately.
 - **Hover / focus states.** Tailwind's `hover:bg-blue-500`
   bypasses the token system. Use
   `hover:bg-[var(--accent)]` instead.

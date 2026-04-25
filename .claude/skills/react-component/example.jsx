@@ -32,7 +32,9 @@ import React, { useEffect, useRef, useState } from "react";
 import { CheckCircle, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-const AUTO_DISMISS_MS = 5000;
+// Export the constant so the companion test can import it and stay
+// in sync if the duration changes — see the test block below.
+export const AUTO_DISMISS_MS = 5000;
 
 /**
  * Toast — a transient confirmation banner.
@@ -119,7 +121,7 @@ export default function Toast({ status, message, onClose }) {
 // // Copyright (c) 2026 John Carter. All rights reserved.
 // import { act, fireEvent, render, screen } from "@testing-library/react";
 // import { afterEach, describe, expect, it, vi } from "vitest";
-// import Toast from "./Toast.jsx";
+// import Toast, { AUTO_DISMISS_MS } from "./Toast.jsx";
 //
 // describe("Toast", () => {
 //   afterEach(() => {
