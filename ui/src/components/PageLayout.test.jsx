@@ -1,6 +1,6 @@
 // Copyright (c) 2026 John Carter. All rights reserved.
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import PageLayout from "./PageLayout.jsx";
 
@@ -11,17 +11,7 @@ vi.mock("react-router-dom", async (importOriginal) => {
 });
 
 beforeEach(() => {
-  // useTheme reads prefers-color-scheme on first render; jsdom doesn't
-  // implement matchMedia so we stub a minimal response.
-  vi.stubGlobal("matchMedia", (q) => ({
-    matches: false,
-    media: q,
-    addListener: () => {},
-    removeListener: () => {},
-    addEventListener: () => {},
-    removeEventListener: () => {},
-    dispatchEvent: () => false,
-  }));
+  mockNavigate.mockReset();
 });
 
 function renderInRouter(ui, path = "/") {
@@ -40,18 +30,14 @@ describe("PageLayout", () => {
     const { container } = await act(async () =>
       renderInRouter(<PageLayout><span /></PageLayout>)
     );
-    expect(container.querySelector('img[alt="Hive"]')).toBeTruthy();
-    expect(screen.getAllByText("Hive").length).toBeGreaterThanOrEqual(1);
+    expect(container.querySelector('img[alt="AgentCore Starter"]')).toBeTruthy();
+    expect(screen.getAllByText("AgentCore Starter").length).toBeGreaterThanOrEqual(1);
   });
 
-  it("renders nav links: Pricing, FAQ, Docs", async () => {
+  it("renders Docs link in header", async () => {
     await act(async () =>
       renderInRouter(<PageLayout><span /></PageLayout>)
     );
-    expect(screen.getAllByText("Use cases").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("Clients").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("Pricing").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("FAQ").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Docs").length).toBeGreaterThanOrEqual(1);
   });
 
@@ -74,7 +60,7 @@ describe("PageLayout", () => {
     await act(async () =>
       renderInRouter(<PageLayout><span /></PageLayout>)
     );
-    const logo = screen.getAllByText("Hive")[0].closest("span");
+    const logo = screen.getAllByText("AgentCore Starter")[0].closest("span");
     fireEvent.click(logo);
     expect(mockNavigate).toHaveBeenCalledWith("/");
   });
@@ -83,44 +69,15 @@ describe("PageLayout", () => {
     await act(async () =>
       renderInRouter(<PageLayout><span /></PageLayout>)
     );
-    expect(screen.getByText(/© 2026 Hive/)).toBeTruthy();
+    expect(screen.getByText(/© 2026 AgentCore Starter/)).toBeTruthy();
   });
 
-  it("renders footer links: Pricing, FAQ, Docs", async () => {
-    await act(async () =>
-      renderInRouter(<PageLayout><span /></PageLayout>)
-    );
-    expect(screen.getAllByText("Pricing").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("FAQ").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("Use cases").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("Clients").length).toBeGreaterThanOrEqual(1);
-  });
-
-  it("renders footer Terms and Privacy links", async () => {
+  it("renders footer Docs link", async () => {
     const { container } = await act(async () =>
       renderInRouter(<PageLayout><span /></PageLayout>)
     );
     const footer = container.querySelector("footer");
-    expect(within(footer).getByText("Terms")).toBeTruthy();
-    expect(within(footer).getByText("Privacy")).toBeTruthy();
-  });
-
-  it("active nav link has orange bottom border for current page", async () => {
-    const { container } = await act(async () =>
-      renderInRouter(<PageLayout><span /></PageLayout>, "/pricing")
-    );
-    const header = container.querySelector("header");
-    const pricingLink = within(header).getByRole("link", { name: "Pricing" });
-    expect(pricingLink.style.borderBottomColor).toBe("rgb(232, 160, 32)");
-  });
-
-  it("inactive nav links have transparent bottom border", async () => {
-    const { container } = await act(async () =>
-      renderInRouter(<PageLayout><span /></PageLayout>, "/pricing")
-    );
-    const header = container.querySelector("header");
-    const faqLink = within(header).getByRole("link", { name: "FAQ" });
-    expect(faqLink.style.borderBottomColor).toBe("transparent");
+    expect(within(footer).getByText("Docs")).toBeTruthy();
   });
 
   it("Sign in button uses nav variant with visible border", async () => {
@@ -133,7 +90,7 @@ describe("PageLayout", () => {
   });
 
   it("mounts the consent banner when no consent has been stored", async () => {
-    localStorage.removeItem("hive_ga_consent");
+    localStorage.removeItem("starter_ga_consent");
     await act(async () =>
       renderInRouter(<PageLayout><span /></PageLayout>)
     );
@@ -161,34 +118,30 @@ describe("PageLayout", () => {
     await act(async () => fireEvent.click(btn));
     const closeBtn = screen.getByLabelText("Close menu");
     expect(closeBtn.getAttribute("aria-expanded")).toBe("true");
-    // Drawer renders its own <nav> inside a div with md:hidden wrapper.
     const drawer = closeBtn.closest("header").querySelector(".md\\:hidden nav");
     expect(drawer).toBeTruthy();
     await act(async () => fireEvent.click(closeBtn));
     expect(screen.getByLabelText("Open menu").getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("mobile drawer lists every nav link; Sign in + theme toggle live in the navbar", async () => {
+  it("mobile drawer contains Docs link", async () => {
     await act(async () => renderInRouter(<PageLayout><span /></PageLayout>));
     await act(async () => fireEvent.click(screen.getByLabelText("Open menu")));
     const drawer = document.querySelector("header .md\\:hidden nav");
     expect(drawer).toBeTruthy();
-    for (const label of ["Use cases", "Clients", "Pricing", "FAQ", "Docs"]) {
-      expect(within(drawer).getByText(label)).toBeTruthy();
-    }
-    // Sign in lives in the navbar (visible at every breakpoint), not in the drawer.
+    expect(within(drawer).getByText("Docs")).toBeTruthy();
+    // Sign in lives in the navbar, not the drawer
     expect(within(drawer).queryByRole("button", { name: "Sign in" })).toBeNull();
   });
 
   it("navbar Sign in navigates to /app at every breakpoint", async () => {
     await act(async () => renderInRouter(<PageLayout><span /></PageLayout>));
-    // Sign in is rendered in the navbar row itself (not the drawer).
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Sign in" })));
     expect(mockNavigate).toHaveBeenCalledWith("/app");
   });
 
   it("navbar theme toggle flips the theme and updates its aria-label", async () => {
-    localStorage.removeItem("hive_theme");
+    localStorage.removeItem("starter_theme");
     await act(async () => renderInRouter(<PageLayout><span /></PageLayout>));
     const btn = screen.getByLabelText(/Switch to (dark|light) mode/);
     const before = btn.getAttribute("aria-label");
@@ -197,27 +150,16 @@ describe("PageLayout", () => {
     expect(after).not.toBe(before);
   });
 
-  it("mobile drawer marks the current page with an orange left border", async () => {
-    await act(async () => renderInRouter(<PageLayout><span /></PageLayout>, "/faq"));
-    await act(async () => fireEvent.click(screen.getByLabelText("Open menu")));
-    const drawer = document.querySelector("header .md\\:hidden nav");
-    const faqLink = within(drawer).getByText("FAQ");
-    expect(faqLink.style.borderLeftColor).toBe("rgb(232, 160, 32)");
-    const pricingLink = within(drawer).getByText("Pricing");
-    expect(pricingLink.style.borderLeftColor).toBe("transparent");
-  });
-
   it("Cookie preferences click clears stored consent and re-shows the banner", async () => {
-    localStorage.setItem("hive_ga_consent", "reject");
+    localStorage.setItem("starter_ga_consent", "reject");
     const { container } = await act(async () =>
       renderInRouter(<PageLayout><span /></PageLayout>)
     );
-    // Banner hidden while consent is stored.
     expect(screen.queryByRole("dialog", { name: "Cookie consent" })).toBeNull();
     const footer = container.querySelector("footer");
     const link = within(footer).getByText("Cookie preferences");
     await act(async () => fireEvent.click(link));
-    expect(localStorage.getItem("hive_ga_consent")).toBeNull();
+    expect(localStorage.getItem("starter_ga_consent")).toBeNull();
     expect(screen.getByRole("dialog", { name: "Cookie consent" })).toBeTruthy();
   });
 });

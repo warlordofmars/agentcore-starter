@@ -259,7 +259,7 @@ export const ALARM_STATE_STYLE = {
 export function AlarmBadge({ alarm }) {
   const style = ALARM_STATE_STYLE[alarm.state] ?? ALARM_STATE_STYLE.INSUFFICIENT_DATA;
   const Icon = style.icon;
-  const label = alarm.description || alarm.name.replace(/^Hive-[^-]+-/, "");
+  const label = alarm.description || alarm.name.replace(/^AgentCoreStarter-[^-]+-/, "");
   return (
     <div
       style={{

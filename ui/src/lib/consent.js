@@ -3,12 +3,12 @@
 /**
  * GA4 consent utilities. The marketing site must not load Google Analytics
  * before the visitor has explicitly opted in (GDPR/CCPA). Both this module
- * and the inline bootstrap in index.html gate on the `hive_ga_consent`
+ * and the inline bootstrap in index.html gate on the `starter_ga_consent`
  * localStorage key.
  */
 
-export const CONSENT_KEY = "hive_ga_consent";
-export const CONSENT_RESET_EVENT = "hive:consent-reset";
+export const CONSENT_KEY = "starter_ga_consent";
+export const CONSENT_RESET_EVENT = "starter:consent-reset";
 
 export function getConsent() {
   try {
@@ -42,11 +42,11 @@ export function loadGtag(measurementId) {
   if (!measurementId) return;
   const doc = globalThis.document;
   if (!doc) return;
-  if (doc.querySelector("script[data-hive-ga]")) return;
+  if (doc.querySelector("script[data-starter-ga]")) return;
   const s = doc.createElement("script");
   s.src = "https://www.googletagmanager.com/gtag/js?id=" + measurementId;
   s.async = true;
-  s.dataset.hiveGa = "1";
+  s.dataset.starterGa = "1";
   doc.head.appendChild(s);
   globalThis.dataLayer = globalThis.dataLayer || [];
   function gtag() {

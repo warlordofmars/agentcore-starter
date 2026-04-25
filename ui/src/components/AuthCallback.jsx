@@ -27,7 +27,7 @@ export default function AuthCallback() {
       }
 
       const verifier = sessionStorage.getItem("pkce_verifier");
-      const clientId = localStorage.getItem("hive_client_id");
+      const clientId = localStorage.getItem("starter_client_id");
       const redirectUri = `${globalThis.location.origin}/oauth/callback`;
 
       if (!verifier || !clientId) {
@@ -54,7 +54,7 @@ export default function AuthCallback() {
       }
 
       const data = await res.json();
-      localStorage.setItem("hive_token", data.access_token);
+      localStorage.setItem("starter_token", data.access_token);
       sessionStorage.removeItem("pkce_verifier");
       sessionStorage.removeItem("oauth_state");
       globalThis.location.replace("/");

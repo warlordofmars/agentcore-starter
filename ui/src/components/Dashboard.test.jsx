@@ -80,7 +80,7 @@ const ALARMS = {
   environment: "test",
   alarms: [
     {
-      name: "Hive-test-McpErrorRate",
+      name: "AgentCoreStarter-test-McpErrorRate",
       description: "MCP error rate > 5%",
       state: "OK",
       state_updated_at: "2026-04-11T12:00:00+00:00",
@@ -95,30 +95,30 @@ const ALARMS = {
 describe("AlarmBadge", () => {
   it("renders OK state with description as label", () => {
     const { container } = render(
-      <AlarmBadge alarm={{ name: "Hive-test-McpErrorRate", description: "MCP error rate > 5%", state: "OK" }} />
+      <AlarmBadge alarm={{ name: "AgentCoreStarter-test-McpErrorRate", description: "MCP error rate > 5%", state: "OK" }} />
     );
     expect(screen.getByText("MCP error rate > 5%")).toBeTruthy();
     expect(container.querySelector("svg")).toBeTruthy();
   });
 
   it("renders ALARM state", () => {
-    render(<AlarmBadge alarm={{ name: "Hive-test-ToolErrors", description: "Tool errors high", state: "ALARM" }} />);
+    render(<AlarmBadge alarm={{ name: "AgentCoreStarter-test-ToolErrors", description: "Tool errors high", state: "ALARM" }} />);
     expect(screen.getByText("Tool errors high")).toBeTruthy();
   });
 
   it("renders INSUFFICIENT_DATA state", () => {
-    render(<AlarmBadge alarm={{ name: "Hive-test-Foo", description: "Foo alarm", state: "INSUFFICIENT_DATA" }} />);
+    render(<AlarmBadge alarm={{ name: "AgentCoreStarter-test-Foo", description: "Foo alarm", state: "INSUFFICIENT_DATA" }} />);
     expect(screen.getByText("Foo alarm")).toBeTruthy();
   });
 
   it("falls back to INSUFFICIENT_DATA style for unknown state", () => {
-    render(<AlarmBadge alarm={{ name: "Hive-test-X", description: "", state: "UNKNOWN_STATE" }} />);
+    render(<AlarmBadge alarm={{ name: "AgentCoreStarter-test-X", description: "", state: "UNKNOWN_STATE" }} />);
     // Falls back: icon is AlertTriangle (same as INSUFFICIENT_DATA)
     expect(ALARM_STATE_STYLE.INSUFFICIENT_DATA).toBeTruthy();
   });
 
   it("strips env prefix from name when description is empty", () => {
-    render(<AlarmBadge alarm={{ name: "Hive-dev-McpErrorRate", description: "", state: "OK" }} />);
+    render(<AlarmBadge alarm={{ name: "AgentCoreStarter-dev-McpErrorRate", description: "", state: "OK" }} />);
     expect(screen.getByText("McpErrorRate")).toBeTruthy();
   });
 });
@@ -516,9 +516,9 @@ describe("Dashboard", () => {
     api.getAlarms.mockResolvedValue({
       environment: "test",
       alarms: [
-        { name: "Hive-test-McpErrorRate", description: "MCP error rate > 5%", state: "OK" },
-        { name: "Hive-test-McpErrorRate", description: "MCP error rate > 5%", state: "OK" },
-        { name: "Hive-test-ToolErrors", description: "Tool errors high", state: "ALARM" },
+        { name: "AgentCoreStarter-test-McpErrorRate", description: "MCP error rate > 5%", state: "OK" },
+        { name: "AgentCoreStarter-test-McpErrorRate", description: "MCP error rate > 5%", state: "OK" },
+        { name: "AgentCoreStarter-test-ToolErrors", description: "Tool errors high", state: "ALARM" },
       ],
     });
     await act(async () => render(<Dashboard />));
@@ -532,7 +532,7 @@ describe("Dashboard", () => {
     api.getAlarms.mockResolvedValue({
       environment: "test",
       alarms: [
-        { name: "Hive-test-ToolErrors", description: "Tool errors high", state: "ALARM" },
+        { name: "AgentCoreStarter-test-ToolErrors", description: "Tool errors high", state: "ALARM" },
       ],
     });
     await act(async () => render(<Dashboard />));

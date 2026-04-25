@@ -1,13 +1,13 @@
 // Copyright (c) 2026 John Carter. All rights reserved.
 /**
- * Hive API client — thin wrapper around fetch.
+ * AgentCore Starter API client — thin wrapper around fetch.
  * Token is read from localStorage.
  */
 
 const BASE = import.meta.env.VITE_API_BASE ?? "";
 
 function getToken() {
-  return localStorage.getItem("hive_mgmt_token") ?? "";
+  return localStorage.getItem("starter_mgmt_token") ?? "";
 }
 
 async function request(method, path, body) {
@@ -22,7 +22,7 @@ async function request(method, path, body) {
   });
 
   if (res.status === 401) {
-    localStorage.removeItem("hive_mgmt_token");
+    localStorage.removeItem("starter_mgmt_token");
     globalThis.location.replace("/");
     return null;
   }
@@ -68,7 +68,7 @@ export const api = {
     if (token) headers["Authorization"] = `Bearer ${token}`;
     const res = await fetch(`${BASE}/api/memories/${id}/content`, { headers });
     if (res.status === 401) {
-      localStorage.removeItem("hive_mgmt_token");
+      localStorage.removeItem("starter_mgmt_token");
       globalThis.location.replace("/");
       return null;
     }
@@ -133,7 +133,7 @@ export const api = {
     if (token) headers["Authorization"] = `Bearer ${token}`;
     const res = await fetch(`${BASE}/api/account/export`, { headers });
     if (res.status === 401) {
-      localStorage.removeItem("hive_mgmt_token");
+      localStorage.removeItem("starter_mgmt_token");
       globalThis.location.replace("/");
       return null;
     }
@@ -144,7 +144,7 @@ export const api = {
     const blob = await res.blob();
     const disposition = res.headers.get("content-disposition") ?? "";
     const match = disposition.match(/filename="([^"]+)"/);
-    const filename = match ? match[1] : "hive-export.json";
+    const filename = match ? match[1] : "agentcore-starter-export.json";
     return { blob, filename };
   },
 };

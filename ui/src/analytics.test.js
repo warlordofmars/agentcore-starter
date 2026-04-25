@@ -56,7 +56,7 @@ describe("analytics (GA enabled — production with ID)", () => {
     vi.resetModules();
     vi.stubEnv("DEV", false);
     vi.stubEnv("VITE_GA_MEASUREMENT_ID", "G-TEST123");
-    localStorage.setItem("hive_ga_consent", "accept");
+    localStorage.setItem("starter_ga_consent", "accept");
     window.gtag = vi.fn();
   });
 
@@ -127,14 +127,14 @@ describe("analytics (GA gated on consent)", () => {
   });
 
   it("trackPageView is a no-op when consent is rejected", async () => {
-    localStorage.setItem("hive_ga_consent", "reject");
+    localStorage.setItem("starter_ga_consent", "reject");
     const { trackPageView } = await import("./analytics.js");
     trackPageView("/pricing");
     expect(window.gtag).not.toHaveBeenCalled();
   });
 
   it("trackEvent is a no-op when consent is rejected", async () => {
-    localStorage.setItem("hive_ga_consent", "reject");
+    localStorage.setItem("starter_ga_consent", "reject");
     const { trackEvent } = await import("./analytics.js");
     trackEvent("cta_click");
     expect(window.gtag).not.toHaveBeenCalled();

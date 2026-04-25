@@ -16,15 +16,15 @@ describe("LoginPage", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders the Hive logo", async () => {
+  it("renders the logo", async () => {
     await act(async () => render(<LoginPage />));
-    const img = screen.getByAltText("Hive");
+    const img = screen.getByAltText("AgentCore Starter");
     expect(img.getAttribute("src")).toBe("/logo.svg");
   });
 
   it("renders the tagline", async () => {
     await act(async () => render(<LoginPage />));
-    expect(screen.getByText(/Shared persistent memory/)).toBeTruthy();
+    expect(screen.getByText(/AgentCore Starter/)).toBeTruthy();
   });
 
   it("renders sign-in button with Google icon", async () => {
