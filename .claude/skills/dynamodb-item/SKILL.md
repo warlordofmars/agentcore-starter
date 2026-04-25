@@ -142,8 +142,8 @@ SK = f"{int(now.timestamp())}#{event_id}"  # e.g. "1745595600#evt-abc"
 
 When querying a time range, fan out: enumerate the hours in the
 range and issue one `query` per partition. Don't try to scan
-across hours with `BeginsWith("LOG#2026-04-25")` — that pulls 24
-partitions through a single scan and defeats the shard.
+across hours with `begins_with(PK, "LOG#2026-04-25")` — a `Scan`
+with that filter pulls every partition and defeats the shard.
 
 Use the hour-shard pattern for any new item type that:
 
@@ -224,10 +224,12 @@ Wired across the project at:
 - `infra/README.md` — documents the var as the storage contract
 
 Never hardcode the table name — `code-reviewer` check 8 enforces
-this. CLAUDE.md and `code-reviewer.md` historically refer to the
-shorter `TABLE_NAME`; the real contract is `STARTER_TABLE_NAME`,
-and either name should be accepted by reviewers as long as the
-value comes from the environment, not source code.
+this. The runtime contract is `STARTER_TABLE_NAME`; CLAUDE.md
+and `code-reviewer.md` use the shorter `TABLE_NAME` as a generic
+shorthand, but production code and tests must read from
+`STARTER_TABLE_NAME`. Code that reads only `TABLE_NAME` will fail
+at runtime because the CDK stack and integration-test fixtures
+do not set that alias.
 
 The endpoint URL is also env-driven (`DYNAMODB_ENDPOINT`) so
 tests point at DynamoDB Local without code changes. The

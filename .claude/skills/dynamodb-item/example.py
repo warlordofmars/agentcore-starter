@@ -38,10 +38,16 @@ import boto3
 # The project contract is ``STARTER_TABLE_NAME`` (the ``STARTER_*`` prefix
 # scopes config to this template). The Lambda runtime sets it via
 # ``infra/stacks/starter_stack.py:271``; tests set it via
-# ``tests/integration/conftest.py:21``. Never hardcode.
+# ``tests/integration/conftest.py:21``. The default below is a local-dev
+# convenience matching the pattern in ``src/starter/README.md``; production
+# code paths always go through the env var so the Lambda environment
+# variable is the single source of truth at runtime.
 
 
 def _get_table() -> Any:
+    # Local-dev default ``"agentcore-starter-dev"`` is intentional — it
+    # matches the StarterStorage constructor pattern documented in
+    # src/starter/README.md and is overridden in every non-local context.
     table_name = os.environ.get("STARTER_TABLE_NAME", "agentcore-starter-dev")
     endpoint_url = os.environ.get("DYNAMODB_ENDPOINT")  # set for DynamoDB Local
     region = os.environ.get("AWS_REGION", "us-east-1")
