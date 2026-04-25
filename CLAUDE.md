@@ -237,9 +237,15 @@ re-derive these during design review — cite them.
 - **Anonymous inline functions** — vitest v8 counts uncovered anonymous
   functions; extract or name handlers that must be tested (e.g. event
   listeners in `useEffect`)
-- **`vi.useFakeTimers()`** — activate only *after* the initial async render
-  completes (`await waitFor(...)`) otherwise fake timers block promise
-  resolution
+- **`vi.useFakeTimers()`** — activate **before** `render(...)` when the
+  timer is scheduled in the component's mount `useEffect` (the common
+  case — see `ui/src/components/Dashboard.test.jsx:363-370`); activating
+  after mount leaves the timer pinned to the real clock. Activate
+  *after* the initial render only when the render itself awaits a
+  fake-able timer (rare). vitest 1.x's default `toFake` set excludes
+  microtasks, so promise resolution is unaffected. Always pair with
+  `vi.useRealTimers()` in a matching cleanup. See
+  `.claude/skills/react-component/SKILL.md` §5.2 for the full pattern.
 
 ## Copyright headers
 
