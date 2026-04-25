@@ -371,8 +371,9 @@ Across the existing six ADRs, the voice is:
   situation arose — "AgentCore Starter needed a standard
   interface..." (ADR-0001 §Context).
 - **Code blocks are language-tagged** — `python`, `text`,
-  `markdown`, `yaml`. Untagged fences appear in older ADRs
-  but every new ADR should tag.
+  `markdown`, `yaml`. Existing ADRs that contain code
+  fences (ADR-0004 uses `text`, ADR-0006 uses `yaml` and
+  `markdown`) all tag the language; new ADRs should match.
 - **Citations to other ADRs use the `ADR-NNNN` form**
   (e.g. "see ADR-0002") with the file path in parentheses
   on first reference if the ADR is not the immediately
