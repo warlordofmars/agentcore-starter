@@ -7,7 +7,7 @@ Uses Google as an identity provider for human-facing management UI login.
 Configuration (env vars or SSM parameters):
   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_ID_PARAM
   GOOGLE_CLIENT_SECRET / GOOGLE_CLIENT_SECRET_PARAM
-  ALLOWED_EMAILS / ALLOWED_EMAILS_PARAM  (JSON array; empty = allow all)
+  ALLOWED_EMAILS / ALLOWED_EMAILS_PARAM  (JSON array; empty = deny all)
 """
 
 from __future__ import annotations
@@ -15,11 +15,22 @@ from __future__ import annotations
 import functools
 import json
 import os
+import time
 from typing import Any
 from urllib.parse import urlencode
 
 import httpx
 from jose import jwt as jose_jwt
+
+from starter.logging_config import get_logger
+
+logger = get_logger(__name__)
+
+# Short TTL on the allowlist so a single login doesn't double-read SSM
+# (gate + role both fetch) while still letting operators populate the
+# parameter post-deploy without forcing a Lambda cold-start.
+_ALLOWED_EMAILS_TTL_SECONDS = 60
+_allowed_emails_cache: tuple[float, frozenset[str]] | None = None
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -53,17 +64,59 @@ def _google_client_secret() -> str:
     )
 
 
-@functools.lru_cache(maxsize=1)
 def _allowed_emails() -> frozenset[str]:
+    """Load the allowlist from env or SSM, with a short TTL cache.
+
+    Fails closed (deny-all) on any load or parse error so a misconfigured
+    parameter never silently grants access. Errors are logged so the
+    operator can see why logins are being rejected.
+    """
+    global _allowed_emails_cache
+    now = time.monotonic()
+    if _allowed_emails_cache is not None:
+        cached_at, cached = _allowed_emails_cache
+        if now - cached_at < _ALLOWED_EMAILS_TTL_SECONDS:
+            return cached
+
+    value: frozenset[str]
     if val := os.environ.get("ALLOWED_EMAILS"):
-        return frozenset(json.loads(val))
-    try:  # pragma: no cover
-        raw = _ssm_param(
-            os.environ.get("ALLOWED_EMAILS_PARAM", "/agentcore-starter/allowed-emails")
-        )
-        return frozenset(json.loads(raw))
-    except Exception:  # pragma: no cover
-        return frozenset()  # empty = allow all (open)
+        try:
+            parsed = json.loads(val)
+            if not isinstance(parsed, list):
+                raise ValueError("ALLOWED_EMAILS must be a JSON array")
+            value = frozenset(parsed)
+        except Exception as exc:
+            logger.warning(
+                "Failed to parse ALLOWED_EMAILS env var (%s); denying all logins. "
+                "Expected a JSON array of email strings.",
+                exc,
+            )
+            value = frozenset()
+    else:
+        try:  # pragma: no cover
+            raw = _ssm_param(
+                os.environ.get("ALLOWED_EMAILS_PARAM", "/agentcore-starter/allowed-emails")
+            )
+            parsed = json.loads(raw)
+            if not isinstance(parsed, list):
+                raise ValueError("ALLOWED_EMAILS SSM value must be a JSON array")
+            value = frozenset(parsed)
+        except Exception as exc:  # pragma: no cover
+            logger.warning(
+                "Failed to load ALLOWED_EMAILS from SSM (%s); denying all logins. "
+                "Check the SSM parameter exists and contains a valid JSON array.",
+                exc,
+            )
+            value = frozenset()
+
+    _allowed_emails_cache = (now, value)
+    return value
+
+
+def _reset_allowed_emails_cache() -> None:
+    """Clear the TTL cache; for use in tests."""
+    global _allowed_emails_cache
+    _allowed_emails_cache = None
 
 
 def google_authorization_url(state: str, callback_uri: str) -> str:
@@ -125,12 +178,12 @@ async def verify_google_id_token(id_token: str) -> dict[str, Any]:  # pragma: no
 def is_email_allowed(email: str) -> bool:
     """Return True if the email is permitted to access the application.
 
-    An empty allowlist means open access (allow all verified Google accounts).
+    An empty allowlist denies all access. This is the safer default: a
+    freshly-deployed stack ships with ``ALLOWED_EMAILS="[]"`` and must
+    not grant management access to any verified Google account until the
+    deployer explicitly populates the list.
     """
-    allowed = _allowed_emails()
-    if not allowed:
-        return True
-    return email in allowed
+    return email in _allowed_emails()
 
 
 def is_admin_email(email: str) -> bool:

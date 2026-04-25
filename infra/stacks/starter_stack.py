@@ -174,7 +174,7 @@ class AgentCoreStarterStack(cdk.Stack):
             "AllowedEmails",
             parameter_name=_ssm_path("allowed-emails"),
             string_value="[]",
-            description=f"JSON array of Google email addresses allowed to access AgentCore Starter ({env_name}); empty = allow all",
+            description=f"JSON array of Google email addresses allowed to access AgentCore Starter ({env_name}); empty = deny all (must be populated post-deploy)",
             tier=ssm.ParameterTier.STANDARD,
         )
         allowed_emails_param.apply_removal_policy(cdk.RemovalPolicy.RETAIN)

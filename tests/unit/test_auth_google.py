@@ -11,6 +11,7 @@ from starter.auth.google import (  # noqa: E402
     _allowed_emails,
     _google_client_id,
     _google_client_secret,
+    _reset_allowed_emails_cache,
     google_authorization_url,
     is_admin_email,
     is_email_allowed,
@@ -20,7 +21,7 @@ from starter.auth.google import (  # noqa: E402
 def _clear_caches():
     _google_client_id.cache_clear()
     _google_client_secret.cache_clear()
-    _allowed_emails.cache_clear()
+    _reset_allowed_emails_cache()
 
 
 def setup_function():
@@ -67,9 +68,10 @@ def test_is_email_allowed_when_not_in_list(monkeypatch):
     assert is_email_allowed("other@test.com") is False
 
 
-def test_is_email_allowed_empty_list_allows_all(monkeypatch):
+def test_is_email_allowed_empty_list_denies_all(monkeypatch):
+    """Empty allowlist denies all — safer default for freshly-deployed stacks."""
     monkeypatch.setenv("ALLOWED_EMAILS", "[]")
-    assert is_email_allowed("anyone@example.com") is True
+    assert is_email_allowed("anyone@example.com") is False
 
 
 def test_is_admin_email_when_listed(monkeypatch):
@@ -80,3 +82,27 @@ def test_is_admin_email_when_listed(monkeypatch):
 def test_is_admin_email_when_not_listed(monkeypatch):
     monkeypatch.setenv("ALLOWED_EMAILS", '["admin@test.com"]')
     assert is_admin_email("user@test.com") is False
+
+
+def test_allowed_emails_invalid_json_denies_all(monkeypatch):
+    """Malformed JSON in ALLOWED_EMAILS env must fail closed (deny all)."""
+    monkeypatch.setenv("ALLOWED_EMAILS", "not-json{")
+    assert _allowed_emails() == frozenset()
+
+
+def test_allowed_emails_non_array_denies_all(monkeypatch):
+    """Non-array JSON in ALLOWED_EMAILS env must fail closed (deny all)."""
+    monkeypatch.setenv("ALLOWED_EMAILS", '{"admin": "alice@example.com"}')
+    assert _allowed_emails() == frozenset()
+
+
+def test_allowed_emails_ttl_cache_returns_cached_value(monkeypatch):
+    """A second call within the TTL window returns the cached set even if
+    the env var changes — the cache absorbs intra-window churn so a single
+    login doesn't double-fetch.
+    """
+    monkeypatch.setenv("ALLOWED_EMAILS", '["alice@example.com"]')
+    first = _allowed_emails()
+    monkeypatch.setenv("ALLOWED_EMAILS", '["bob@example.com"]')
+    second = _allowed_emails()
+    assert first == second == frozenset({"alice@example.com"})
