@@ -27,5 +27,5 @@ uv run inv deploy --env dev
 uv run inv dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173) and sign in with the bypass URL:
+Open `http://localhost:5173` and sign in with the bypass URL:
 `http://localhost:5173?test_email=you@example.com`
