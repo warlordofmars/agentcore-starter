@@ -50,13 +50,14 @@ Path: `docs/adr/NNNN-kebab-title.md`.
 
 Long-form ADRs may ship a companion summary file using the
 `NNNN-<title>-summary.md` form — `0004-agentcore-runtime-feasibility-summary.md`
-is the only current example, distilling a 271-line spike report
-into 74 lines for a downstream issue. The summary uses a
-free-form section structure, not the canonical template, because
-it is a derived artifact pointed at a specific consumer (#48 in
-that case). Don't reach for this shape unless the source ADR is
-itself unusually long *and* a downstream consumer needs the
-distilled form.
+is the only current example, distilling a long spike report
+(~270 lines) into a short summary (~75 lines) for a
+downstream issue. The summary uses a free-form section
+structure, not the canonical template, because it is a
+derived artifact pointed at a specific consumer (#48 in
+that case). Don't reach for this shape unless the source
+ADR is itself unusually long *and* a downstream consumer
+needs the distilled form.
 
 ## 2. Header block — three lines, exact shape
 
@@ -324,7 +325,9 @@ CLAUDE.md product decisions cite the cross-cutting rule
 
 ## 7. Length — bias short, scale with surface
 
-Existing ADR lengths (lines):
+Existing ADR lengths (counted by `wc -l`, i.e. newline
+count — some editors and viewers display one more for the
+trailing-newline cursor position):
 
 | ADR | Lines | Why |
 | --- | --- | --- |
