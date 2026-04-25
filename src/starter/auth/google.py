@@ -21,6 +21,10 @@ from urllib.parse import urlencode
 import httpx
 from jose import jwt as jose_jwt
 
+from starter.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs"
@@ -53,8 +57,14 @@ def _google_client_secret() -> str:
     )
 
 
-@functools.lru_cache(maxsize=1)
 def _allowed_emails() -> frozenset[str]:
+    """Load the allowlist from env or SSM on every call.
+
+    Not cached: under deny-all semantics, operators populate the SSM
+    parameter post-deploy and need the running Lambda to pick up the
+    new value without waiting for a cold start. Logins are infrequent,
+    so the per-call SSM read is acceptable.
+    """
     if val := os.environ.get("ALLOWED_EMAILS"):
         return frozenset(json.loads(val))
     try:  # pragma: no cover
@@ -62,7 +72,12 @@ def _allowed_emails() -> frozenset[str]:
             os.environ.get("ALLOWED_EMAILS_PARAM", "/agentcore-starter/allowed-emails")
         )
         return frozenset(json.loads(raw))
-    except Exception:  # pragma: no cover
+    except Exception as exc:  # pragma: no cover
+        logger.warning(
+            "Failed to load ALLOWED_EMAILS from SSM (%s); denying all logins. "
+            "Check the SSM parameter exists and contains a valid JSON array.",
+            exc,
+        )
         return frozenset()  # empty = deny all (safer default)
 
 

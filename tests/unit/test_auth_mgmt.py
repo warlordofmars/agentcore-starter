@@ -10,7 +10,7 @@ os.environ.setdefault("STARTER_JWT_SECRET", "test-secret-for-unit-tests")
 os.environ.setdefault("GOOGLE_CLIENT_ID", "test-google-client-id")
 
 from starter.api.main import app  # noqa: E402
-from starter.auth.google import _allowed_emails, _google_client_id  # noqa: E402
+from starter.auth.google import _google_client_id  # noqa: E402
 from starter.auth.mgmt_auth import (  # noqa: E402
     _consume_pending_state,
     _create_pending_state,
@@ -24,7 +24,6 @@ _client = TestClient(app, follow_redirects=False)
 
 def _clear_google_caches():
     _google_client_id.cache_clear()
-    _allowed_emails.cache_clear()
 
 
 def setup_function():

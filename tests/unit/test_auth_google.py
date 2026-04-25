@@ -20,7 +20,6 @@ from starter.auth.google import (  # noqa: E402
 def _clear_caches():
     _google_client_id.cache_clear()
     _google_client_secret.cache_clear()
-    _allowed_emails.cache_clear()
 
 
 def setup_function():
