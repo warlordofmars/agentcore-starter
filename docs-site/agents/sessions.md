@@ -42,7 +42,7 @@ Bedrock Agents retains session state for **1 hour of idle time** by default.
 After that, the session expires and the next call with the same `session_id`
 starts fresh.
 
-You can adjust this at the boto3 call site in `agentcore.py`
+You can adjust this at the boto3 call site in `inline_agent.py`
 (`idleSessionTTLinSeconds` on the `invoke_inline_agent` call).
 
 ## Long-term memory
@@ -55,7 +55,7 @@ before calling Bedrock — for example, fetch a summary from DynamoDB and inject
 it as a system-level attribute:
 
 ```python
-# In agentcore.py _stream_chunks(), extend kwargs:
+# In inline_agent.py _stream_chunks(), extend kwargs:
 kwargs["inlineSessionState"] = {
     "promptSessionAttributes": {
         "user_summary": load_user_summary(user_id),  # your DynamoDB lookup
@@ -70,7 +70,7 @@ model's context window.
 ## Action groups (tool-calling)
 
 The starter ships with an empty action group list. To give the agent tools,
-add entries to the `actionGroups` key in `agentcore.py`:
+add entries to the `actionGroups` key in `inline_agent.py`:
 
 ```python
 kwargs["actionGroups"] = [

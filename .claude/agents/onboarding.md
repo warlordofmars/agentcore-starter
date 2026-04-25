@@ -289,7 +289,7 @@ The template ships placeholder endpoints. Point the developer to exactly what to
 | File | What it does now | What to do |
 |---|---|---|
 | `src/<project-name>/api/agents.py` | Echo + invoke scaffold endpoints | Replace with your own agent logic |
-| `src/<project-name>/agents/agentcore.py` | `invoke` / `invoke_stream` wrappers | Add `actionGroups` for tool-calling (see `docs-site/agents/sessions.md`) |
+| `src/<project-name>/agents/inline_agent.py` | `invoke` / `invoke_stream` wrappers | Add `actionGroups` for tool-calling (see `docs-site/agents/sessions.md`) |
 | `src/<project-name>/agents/bedrock.py` | Raw `converse` / `converse_stream` | Replace or extend for custom prompting |
 | `ui/src/components/` | Admin-only dashboard + user management | Add your own tabs and panels |
 | `tasks.py` `seed()` task | Stub that prints a message | Implement with your own demo data |
@@ -339,7 +339,7 @@ Phase 5 — First deploy
 
 Phase 6 — Scaffold replaced
   [○] Replace agent endpoints in api/agents.py
-  [○] Add action groups in agentcore.py
+  [○] Add action groups in inline_agent.py
   [○] Update management UI components
   [○] Seed script implemented
 ```

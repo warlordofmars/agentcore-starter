@@ -3,6 +3,12 @@
 A starter template for AWS-native AI agent backend services.
 Built with FastAPI (Python), DynamoDB, AWS CDK, and a React management UI.
 
+> **Naming disambiguation**: this template is named after a product family,
+> not the AWS Bedrock AgentCore service. The inline-agent wrapper lives at
+> `agents/inline_agent.py`; AgentCore Runtime, Memory, and Gateway are not
+> currently integrated. See issue #17 for the feasibility spike on
+> integrating them.
+
 ## Stack
 
 - FastAPI (Python) — OAuth 2.1 authorization server + management REST API
@@ -33,7 +39,7 @@ agentcore-starter/
 │       ├── agents/
 │       │   ├── __init__.py
 │       │   ├── bedrock.py     # Converse + converse_stream (raw Bedrock)
-│       │   └── agentcore.py   # invoke + invoke_stream (Bedrock inline agent)
+│       │   └── inline_agent.py # invoke + invoke_stream (Bedrock inline agent)
 │       └── api/
 │           ├── main.py        # FastAPI app + routes
 │           ├── admin.py       # Admin-only endpoints
@@ -211,7 +217,7 @@ re-derive these during design review — cite them.
   take a `workspace_id` / `namespace` param on every call. Scope comes
   from the token claim; agents register a new DCR client per context and
   swap tokens to switch.
-- **Agent session IDs are user-namespaced** — the `agentcore.py` wrapper
+- **Agent session IDs are user-namespaced** — the `inline_agent.py` wrapper
   computes the Bedrock `sessionId` as `f"{jwt_sub}:{caller_session_id}"`.
   Callers supply their own opaque `session_id`; the wrapper adds the user
   prefix so sessions never bleed across users. The namespaced form is

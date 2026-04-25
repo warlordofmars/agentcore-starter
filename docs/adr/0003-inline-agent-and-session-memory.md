@@ -36,7 +36,7 @@ The JWT `sub` claim identifies the authenticated user.
 
 1. **Use `invoke_inline_agent`** for all agent endpoints in this template.
    This enables zero-console-setup for new adopters.  Teams that want
-   pre-configured agents can replace the `agentcore.py` wrapper with an
+   pre-configured agents can replace the `inline_agent.py` wrapper with an
    `invoke_agent` call and supply an agent ID via an environment variable or
    SSM parameter.
 
@@ -70,7 +70,7 @@ The JWT `sub` claim identifies the authenticated user.
   resource `arn:aws:bedrock:{region}:{account}:agent/*`.  The wildcard
   on the agent resource suffix is required because inline agents do not
   have a fixed ARN.
-* **Pre-configured agent migration path**: replace `agentcore.py` with a
+* **Pre-configured agent migration path**: replace `inline_agent.py` with a
   thin wrapper around `invoke_agent`, read `BEDROCK_AGENT_ID` and
   `BEDROCK_AGENT_ALIAS_ID` from env/SSM, and update the IAM policy to scope
   the `InvokeAgent` action to those specific ARNs.

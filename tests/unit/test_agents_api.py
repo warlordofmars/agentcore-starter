@@ -12,8 +12,8 @@ from fastapi.testclient import TestClient
 
 os.environ.setdefault("STARTER_JWT_SECRET", "test-secret-for-unit-tests")
 
-from starter.agents.agentcore import InlineAgentResponse  # noqa: E402
 from starter.agents.bedrock import ConverseResponse  # noqa: E402
+from starter.agents.inline_agent import InlineAgentResponse  # noqa: E402
 from starter.api.main import app  # noqa: E402
 from starter.auth.tokens import issue_mgmt_jwt  # noqa: E402
 

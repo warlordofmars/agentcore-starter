@@ -10,8 +10,8 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from starter.agents.agentcore import InlineAgentRequest, invoke, invoke_stream
 from starter.agents.bedrock import BedrockMessage, ConverseRequest, converse, converse_stream
+from starter.agents.inline_agent import InlineAgentRequest, invoke, invoke_stream
 from starter.api._auth import require_mgmt_user
 
 router = APIRouter()
