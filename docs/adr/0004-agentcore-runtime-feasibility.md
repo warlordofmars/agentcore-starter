@@ -60,9 +60,14 @@ template currently publishes only the RFC 8414 form
 `InvokeAgentRuntime` returns a streaming HTTP body whose content type is
 whatever the Runtime container emits; for SSE the container yields
 `text/event-stream` chunks (`data: …\n\n`) and AWS proxies them through.
-Boto3 consumer pattern is the same `iter_lines` shape already used in
-`inline_agent.py`. Wiring Runtime SSE into our existing FastAPI
-`StreamingResponse` path (proven in ADR-0002) is mechanical.
+The boto3 consumer pattern is `for line in response["response"].iter_lines():
+…` — raw HTTP chunked stream. This is a different shape from the existing
+inline-agent path, which iterates the Bedrock event stream via
+`for event in response["completion"]:` and forwards decoded chunks through
+FastAPI `StreamingResponse`. Wiring Runtime SSE into that existing
+`StreamingResponse` path (proven in ADR-0002) is still mechanical, even
+though the upstream stream surface is HTTP/SSE rather than Bedrock event
+objects.
 
 Hard quotas to plan against: 60-min streaming maximum, 100 MB request
 payload, 8-hour session lifetime, 15-minute idle timeout, 1000 active
