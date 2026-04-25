@@ -1,12 +1,11 @@
-# Hive UI
+# AgentCore Starter UI
 
 React 18 + Vite management SPA. Runs at `http://localhost:5173` in development and is served from CloudFront in production.
 
 ## Features
 
-- **Memories** — browse, filter by tag, create, edit, and delete memories
-- **OAuth Clients** — register new clients (RFC 7591), view existing ones, delete/revoke
-- **Activity Log** — event timeline with stats (memories, clients, events today/7-day)
+- **Users** — admin user management panel
+- **Dashboard** — admin CloudWatch metrics and cost overview
 
 ## Development setup
 
@@ -27,7 +26,7 @@ Or run the API locally:
 ```bash
 # In another terminal
 cd ..
-HIVE_JWT_SECRET=dev-secret uv run uvicorn hive.api.main:app --port 8001 --reload
+STARTER_JWT_SECRET=dev-secret uv run uvicorn starter.api.main:app --port 8001 --reload
 
 # Then
 VITE_API_BASE=http://localhost:8001 npm run dev
@@ -35,23 +34,30 @@ VITE_API_BASE=http://localhost:8001 npm run dev
 
 ## Authentication
 
-The UI stores the Bearer token in `localStorage` under the key `hive_token`. Paste a valid token into the header input field — it persists across page reloads.
-
-To get a token, see [docs/mcp-setup.md](../docs/mcp-setup.md#cli-token-issuance).
+The UI stores the management Bearer token in `localStorage` under the key `starter_mgmt_token`.
 
 ## Project structure
 
 ```
 ui/src/
 ├── main.jsx                      # React entry point
-├── App.jsx                       # Root component, tab navigation, token input
+├── App.jsx                       # Root component, tab navigation
 ├── api.js                        # Thin fetch wrapper (reads token from localStorage)
+├── analytics.js                  # GA4 helpers
 ├── setupTests.js                 # vitest + @testing-library setup
+├── hooks/
+│   └── useTheme.js               # Dark/light theme hook
+├── lib/
+│   ├── consent.js                # GA consent management
+│   ├── limits.js                 # formatBytes utility
+│   └── utils.js                  # cn and other shared utils
 └── components/
-    ├── MemoryBrowser.jsx          # Memory list + filter + create/edit form
-    ├── MemoryBrowser.test.jsx     # Component tests
-    ├── ClientManager.jsx          # OAuth client table + registration form
-    └── ActivityLog.jsx            # Event timeline + stats cards
+    ├── LoginPage.jsx             # Google OAuth login page
+    ├── AuthCallback.jsx          # OAuth callback handler
+    ├── Dashboard.jsx             # Admin: CloudWatch metrics + cost data
+    ├── UsersPanel.jsx            # Admin: user list + management
+    ├── EmptyState.jsx            # Shared empty-state illustration
+    └── PageLayout.jsx            # Shared marketing page layout + navbar
 ```
 
 ## Available scripts

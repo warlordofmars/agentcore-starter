@@ -1,33 +1,29 @@
-# Hive
+# AgentCore Starter
 
-A shared persistent memory MCP server for AI agents and teams.
-Built with FastMCP (Python), AWS-native storage, and a React management UI.
+A starter template for AWS-native AI agent backend services.
+Built with FastAPI (Python), DynamoDB, AWS CDK, and a React management UI.
 
 ## Stack
 
-- FastMCP (Python) — MCP server + tool definitions
 - FastAPI (Python) — OAuth 2.1 authorization server + management REST API
 - React (Vite) + shadcn/ui — management UI SPA
 - DynamoDB — persistent storage (single table design)
-- AWS Lambda + Function URL — hosting for MCP server and API
+- AWS Lambda + Function URL — hosting
 - AWS CDK (Python) — IaC
 - IAM roles — Lambda <-> DynamoDB auth
 - Google OAuth — identity provider for management UI login
-- GA4 (Google Analytics 4) — page view + event tracking on marketing site
 - uv — dependency management (pyproject.toml + uv.lock)
 
 ## Structure
 
 ```text
-hive/
+agentcore-starter/
 ├── src/
-│   └── hive/
-│       ├── server.py          # FastMCP server + tool definitions
+│   └── starter/
 │       ├── storage.py         # DynamoDB read/write logic
-│       ├── models.py          # Memory + client + user data models
+│       ├── models.py          # Data models
 │       ├── logging_config.py  # Structured JSON logging setup
 │       ├── metrics.py         # CloudWatch EMF metrics helpers
-│       ├── vector_store.py    # S3 Vectors integration for semantic search
 │       ├── auth/
 │       │   ├── oauth.py       # OAuth 2.1 authorization server
 │       │   ├── dcr.py         # Dynamic Client Registration (RFC 7591)
@@ -36,9 +32,6 @@ hive/
 │       │   └── mgmt_auth.py   # Management API authentication
 │       └── api/
 │           ├── main.py        # FastAPI app + routes
-│           ├── memories.py    # Memory CRUD endpoints
-│           ├── clients.py     # OAuth client management endpoints
-│           ├── stats.py       # Usage stats + activity log endpoints
 │           ├── admin.py       # Admin-only endpoints
 │           └── users.py       # User management endpoints
 ├── ui/
@@ -53,23 +46,12 @@ hive/
 │   │   └── components/
 │   │       ├── ui/
 │   │       │   └── button.jsx # shadcn/ui Button primitive
-│   │       ├── MemoryBrowser.jsx
-│   │       ├── ClientManager.jsx
-│   │       ├── ActivityLog.jsx
 │   │       ├── Dashboard.jsx  # Admin: CloudWatch metrics + cost data
 │   │       ├── UsersPanel.jsx # Admin: user list + management
-│   │       ├── SetupPanel.jsx # First-run MCP client setup wizard
 │   │       ├── EmptyState.jsx # Shared empty-state illustrations
-│   │       ├── PageLayout.jsx # Shared marketing page layout + navbar
+│   │       ├── PageLayout.jsx # Shared page layout + navbar
 │   │       ├── AuthCallback.jsx
-│   │       ├── LoginPage.jsx
-│   │       ├── HomePage.jsx   # Marketing landing page
-│   │       ├── PricingPage.jsx
-│   │       ├── FaqPage.jsx
-│   │       ├── UseCasesPage.jsx
-│   │       ├── McpClientsPage.jsx
-│   │       ├── ChangelogPage.jsx
-│   │       └── StatusPage.jsx
+│   │       └── LoginPage.jsx
 │   └── package.json
 ├── docs-site/                 # VitePress documentation site
 │   ├── .vitepress/
@@ -77,72 +59,51 @@ hive/
 │   │   └── theme/
 │   │       ├── index.js       # Custom Layout (nav-bar-content-after slot)
 │   │       └── style.css      # Dark navy navbar, brand colours
-│   ├── getting-started/       # Quick start, connect client, first memory
-│   ├── concepts/              # Memory scoping, tags, etc.
-│   ├── tools/                 # Per-tool MCP reference pages
-│   └── ui-guide/              # Management UI walkthrough
+│   └── getting-started/       # Introduction and quick-start
 ├── infra/
 │   ├── app.py                 # CDK app entry point
 │   └── stacks/
-│       └── hive_stack.py      # Lambda + DynamoDB + CloudFront + IAM
+│       └── starter_stack.py   # Lambda + DynamoDB + CloudFront + IAM
 ├── tests/
 │   ├── unit/                  # Pure logic, no AWS deps
 │   ├── integration/           # Tests against DynamoDB Local
 │   └── e2e/                   # Playwright tests against deployed env
-│       ├── test_mcp_e2e.py
 │       ├── test_auth_e2e.py
-│       ├── test_ui_e2e.py     # Admin UI (Playwright)
-│       ├── test_admin_e2e.py  # Admin-only UI flows (Playwright)
-│       ├── test_docs_e2e.py   # VitePress docs site (Playwright)
-│       └── test_dashboard_e2e.py
+│       └── test_ui_e2e.py     # Admin UI (Playwright)
 ├── scripts/
-│   ├── check_copyright.py     # Copyright header linter
-│   ├── seed_data.py           # Dev data seeding
-│   └── synthetic_traffic.py   # Synthetic load for dev env
+│   └── check_copyright.py     # Copyright header linter
 ├── .github/
 │   └── workflows/
 │       ├── ci.yml             # CI on PRs + deploy on push to dev/main
 │       ├── deploy-dev.yml     # Manual dev deploy (workflow_dispatch)
-│       ├── security.yml       # Scheduled security scans
-│       └── synthetic-traffic.yml  # Scheduled synthetic traffic
+│       └── security.yml       # Scheduled security scans
 ├── tasks.py                   # Invoke task definitions (lint, test, deploy)
 ├── pyproject.toml
 └── README.md
 ```
 
-## MCP Tools
-
-- `remember(key, value, tags[])` — store a memory
-- `recall(key)` — retrieve a memory by key
-- `forget(key)` — delete a memory
-- `list_memories(tag)` — list memories by tag
-- `search_memories(query)` — semantic search across memories via S3 Vectors
-- `summarize_context(topic)` — synthesize memories into a summary
-
 ## Auth
 
-- OAuth 2.1 authorization server built into Hive (self-contained)
+- OAuth 2.1 authorization server built into AgentCore Starter (self-contained)
 - Dynamic Client Registration per RFC 7591 (required by MCP spec)
 - PKCE required on all authorization code flows
 - Tokens stored in DynamoDB with TTL
-- All MCP and API endpoints require a valid Bearer token
+- All API endpoints require a valid Bearer token
 - Management UI login via Google OAuth (`/auth/login`)
 
 ## DynamoDB single table design
 
-- Memory items: `PK=MEMORY#{memory_id}`, `SK=TAG#{tag}`
 - OAuth client items: `PK=CLIENT#{client_id}`, `SK=META`
 - Token items: `PK=TOKEN#{jti}`, `SK=META` (TTL enabled)
 - Activity log items: `PK=LOG#{date}#{hour}`, `SK={timestamp}#{event_id}`
   (hour-sharded to avoid hot partitions)
 - Audit log items: `PK=AUDIT#{date}#{hour}`, `SK={timestamp}#{event_id}`
-  (immutable compliance trail, TTL via `HIVE_AUDIT_RETENTION_DAYS`,
-  default 365 days; survives user-initiated activity-log purges)
+  (immutable compliance trail, TTL via `STARTER_AUDIT_RETENTION_DAYS`,
+  default 365 days)
 - User items: `PK=USER#{user_id}`, `SK=META`
 - Mgmt state items: `PK=MGMT_STATE#{state}`, `SK=META`
   (TTL enabled, used for OAuth state parameter)
 - GSIs:
-  - `TagIndex` — `GSI2PK=TAG#{tag}`, `GSI2SK=memory_id` (for list_memories)
   - `ClientIdIndex` — `GSI3PK=CLIENT#{client_id}` (for client lookups)
   - `UserEmailIndex` — `PK=EMAIL#{email}` (for user lookups by email)
 
@@ -151,15 +112,10 @@ hive/
 - React SPA (Vite), runs on port 5173 in dev
 - Communicates with FastAPI management API on port 8001
 - Features:
-  - Browse/search/create/edit/delete memories (`MemoryBrowser`)
-  - Manage OAuth clients with DCR (`ClientManager`)
-  - Activity log (`ActivityLog`)
-  - First-run setup wizard (`SetupPanel`)
   - Admin only: user management (`UsersPanel`), metrics dashboard (`Dashboard`)
 - Auth: Google OAuth via `/auth/login`;
-  token stored in localStorage as `hive_mgmt_token`
-- Tab set: Memories, OAuth Clients, Activity Log, Setup
-  (+ Users, Dashboard for admins)
+  token stored in localStorage as `starter_mgmt_token`
+- Tab set: Users, Dashboard (admin only)
 
 ## Docs site
 
@@ -365,8 +321,7 @@ gh pr merge --auto --merge
    new `## vX.Y.Z — YYYY-MM-DD` section **curated into
    `Added / Changed / Fixed / Meta` subsections** matching the prior
    releases in the file. The **draft release auto-maintained by
-   Release Drafter** (see
-   https://github.com/warlordofmars/hive/releases) is the
+   Release Drafter** (see the releases page in this repo) is the
    what-landed source of truth — don't re-derive from PR history —
    but the Drafter body is a flat bulleted list of PR titles; do
    **not** paste it verbatim. Group related PRs, write 1–2
@@ -407,7 +362,7 @@ gh pr merge --auto --merge
 ## Running the full stack locally
 
 ```bash
-# 1. Start all services (DynamoDB Local, MCP server, API, Vite dev server)
+# 1. Start all services (DynamoDB Local, API, Vite dev server)
 #    Add --seed to also seed demo data automatically once the API is ready
 uv run inv dev [--seed]
 ```
@@ -416,9 +371,7 @@ uv run inv dev [--seed]
 
 - `CORS_ORIGINS` — `localhost:5173` through `localhost:5179` (handles port
   collisions if 5173 is already taken by another project)
-- `HIVE_VECTORS_BUCKET=local-dev` — prevents VectorStore from crashing on
-  every list-memories request (semantic search will still fail locally)
-- `HIVE_BYPASS_GOOGLE_AUTH=1` — enables the `?test_email=` auth shortcut
+- `STARTER_BYPASS_GOOGLE_AUTH=1` — enables the `?test_email=` auth shortcut
   (only activates when that query param is present; normal browser flows
   are unaffected)
 
@@ -442,8 +395,8 @@ uv run inv e2e-local --tests tests/e2e/test_ui_e2e.py
 uv run inv e2e-local --n 5
 ```
 
-`inv e2e-local` probes ports 5173–5179 for the Hive Vite dev server (via
-`/auth/login?test_email=probe`) and passes the detected URL as `HIVE_UI_URL`.
+`inv e2e-local` probes ports 5173–5179 for the AgentCore Starter Vite dev server (via
+`/auth/login?test_email=probe`) and passes the detected URL as `STARTER_UI_URL`.
 
 Key local e2e gotchas:
 
@@ -468,13 +421,11 @@ touches any of the following:
 
 - Fixing a failing e2e test — the fix must pass locally before the PR opens
 - Auth flows (`auth/`, `AuthCallback.jsx`, `LoginPage.jsx`, OAuth endpoints)
-- MCP tool logic (`server.py`) — remember, recall, forget, search, list
-- Management API endpoints (`api/`) that the UI or MCP tests exercise
+- Management API endpoints (`api/`) that the UI tests exercise
 
 **Use judgement (run the relevant `--tests` file at minimum):**
 
-- UI component changes that affect user-visible flows (memory CRUD, client
-  management, activity log)
+- UI component changes that affect user-visible flows
 - Vite proxy config or API base URL changes
 
 **Not needed:**
@@ -1014,7 +965,7 @@ Halt and wait for human input **only** in these situations:
 - The PR is not auto-merging after CI passes and the reason is unclear
 - The `development` pipeline failure is in infrastructure (CDK / Lambda /
   DynamoDB) and the root cause is not apparent from logs
-- A change requires modifying `infra/stacks/hive_stack.py` in a way that
+- A change requires modifying `infra/stacks/starter_stack.py` in a way that
   could affect production resources
 - The same CI check has failed 3 times without a clear fix
 - A release milestone (pattern `vX.Y`) drains to zero open non-epic issues —
@@ -1081,7 +1032,7 @@ queue trustworthy.
   the agent** after the §7.5 Copilot review + CI pass. Apply when the
   work is low-risk enough that an LLM reviewer's feedback is
   sufficient without a human final look: `priority:p2` / `p3`,
-  `size:xs` / `s` / `m`, and not touching `infra/stacks/hive_stack.py`,
+  `size:xs` / `s` / `m`, and not touching `infra/stacks/starter_stack.py`,
   `.github/workflows/`, or any auth / token-issuance path. Without
   this label, the agent still runs Copilot review (everyone benefits
   from a second opinion) but then stops for human merge.

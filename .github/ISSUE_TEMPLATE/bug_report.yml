@@ -7,15 +7,13 @@ body:
       value: |
         Thanks for taking the time to report a bug. Please fill in as much detail as you can.
 
-        **Security vulnerabilities** — use [private reporting](https://github.com/warlordofmars/hive/security/advisories/new) instead.
+        **Security vulnerabilities** — use [private reporting](../../security/advisories/new) instead.
 
   - type: dropdown
     id: area
     attributes:
       label: Area
       options:
-        - Hosted service (hive.warlordofmars.net)
-        - MCP tools (remember / recall / forget / list / summarize)
         - OAuth / authentication
         - Management UI
         - API
