@@ -27,3 +27,4 @@ What are the trade-offs, follow-on work, or constraints this decision creates?
 |---|---|---|
 | [0001](0001-bedrock-converse-api.md) | Bedrock Converse API as the agent LLM interface | Accepted |
 | [0002](0002-streaming-lambda-web-adapter.md) | Streaming via AWS Lambda Web Adapter | Accepted |
+| [0003](0003-inline-agent-and-session-memory.md) | Inline Agent and session memory conventions | Accepted |
