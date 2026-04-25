@@ -72,23 +72,40 @@ Conventions:
 
 ## 2. CSS variables — never hardcoded colours
 
-All colours come from CSS custom properties defined at
-`ui/src/index.css:20-42` (light + dark theme blocks). The full
-token set:
+All colours come from CSS custom properties defined in
+`ui/src/index.css`. Three definition blocks live in that file:
+
+- `@theme { ... }` (lines 6-16) — Tailwind v4 brand tokens
+  (`--color-brand`, `--color-brand-light`, `--color-brand-dark`,
+  `--color-navy`, `--color-navy-mid`, `--color-navy-deep`)
+  consumed via Tailwind utility classes (`bg-brand`, `text-navy`).
+- `:root { ... }` (lines 18-30) — light-theme application
+  tokens.
+- `[data-theme="dark"] { ... }` (lines 32-44) — dark-theme
+  overrides for the same names.
+
+The core application colour tokens (the most common subset
+component code reaches for):
 
 | Token | Purpose |
 | --- | --- |
+| `--bg` | Page background |
 | `--surface` | Card / panel background |
 | `--border` | Hairline divider |
 | `--text` | Primary text colour |
 | `--text-muted` | Secondary text |
-| `--accent` | Brand accent (orange in dark, navy in light) |
+| `--accent` | Brand accent (navy in light, orange in dark) |
 | `--accent-fg` | Foreground over `--accent` |
+| `--amber` | Highlight / warning accent |
 | `--danger` | Destructive action / error |
 | `--success` | Confirm / success |
 
-Consume tokens via Tailwind's arbitrary-value syntax or inline
-style:
+Plus `--radius` for rounded-corner sizing. The `@theme` brand
+tokens are consumed via Tailwind utilities, not `var(...)`, so
+they don't need to appear in the table above.
+
+Consume application tokens via Tailwind's arbitrary-value
+syntax or inline style:
 
 ```jsx
 // Tailwind arbitrary value (preferred — see EmptyState.jsx:45)
@@ -100,9 +117,9 @@ style:
 
 `code-reviewer` check 4 fails the build on any new hex / `rgb()`
 / `hsl()` literal *consumed* in `*.css`, `*.jsx`, or `*.js`.
-**Defining** a root-level CSS variable that holds a literal —
-in `ui/src/index.css` (the management UI's `:root` and
-`[data-theme="dark"]` blocks) or in
+**Defining** a CSS variable token that holds a literal — in any
+of `ui/src/index.css`'s three definition blocks (`@theme`,
+`:root`, `[data-theme="dark"]`) or in
 `docs-site/.vitepress/theme/style.css` (the docs site's
 equivalent) — is the one allowed shape. The rule's intent is
 "no inline literals at the use site"; defining a token's value
@@ -272,18 +289,31 @@ hook test setup at `ui/src/hooks/useRelativeTime.test.js:60-66`
 shows the `beforeEach` / `afterEach` pair when every test in
 the suite needs fake timers around mount.
 
-**Case B — timer awaited during render.** Rare; only applies
-when the component's initial render awaits a `setTimeout`-driven
-animation or polling cycle. Activating fake timers before the
-initial render would freeze that await. Render first, then
-activate:
+**Case B — initial test setup needs real-clock progress.**
+Rare. React function components don't actually await
+`setTimeout` during render, so the issue isn't render itself —
+it's the *test* needing real-clock progress for one of its
+phases. Two scenarios fit:
+
+- A mount-time `useEffect` schedules work via a real-clock
+  helper (e.g. a third-party SDK that internally uses
+  `setTimeout`) and the assertion needs that work to land
+  before fake timers take over.
+- The test uses `waitFor` / `findBy*` for an initial assertion
+  before driving the timer — those helpers poll on a real
+  interval, and enabling fake timers around them stalls the
+  poll.
+
+Pattern: render under real timers, settle the initial state,
+then switch to fake timers for the timer-driven assertion:
 
 ```jsx
-// Only when the initial render itself awaits a fake-able timer.
+// Only when the initial test setup needs the real clock first.
 await act(async () => render(<RareAnimatedComponent />));
 await waitFor(() => expect(screen.getByText("ready")).toBeTruthy());
 vi.useFakeTimers();
-// ...drive the timer...
+await act(async () => vi.advanceTimersByTime(1_000));
+// ...assert timer-driven update...
 vi.useRealTimers();
 ```
 

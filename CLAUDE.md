@@ -241,11 +241,14 @@ re-derive these during design review — cite them.
   timer is scheduled in the component's mount `useEffect` (the common
   case — see `ui/src/components/Dashboard.test.jsx:363-370`); activating
   after mount leaves the timer pinned to the real clock. Activate
-  *after* the initial render only when the render itself awaits a
-  fake-able timer (rare). vitest 1.x's default `toFake` set excludes
-  microtasks, so promise resolution is unaffected. Always pair with
-  `vi.useRealTimers()` in a matching cleanup. See
-  `.claude/skills/react-component/SKILL.md` §5.2 for the full pattern.
+  *after* the initial render only when the test needs real-clock
+  progress for some setup phase (e.g. `waitFor` / `findBy*` polling on
+  the real clock, or a mount-time helper that requires real-clock
+  progress) before switching to fake timers for the timer-driven
+  assertion. vitest 1.x's default `toFake` set excludes microtasks, so
+  promise resolution is unaffected. Always pair with `vi.useRealTimers()`
+  in a matching cleanup. See `.claude/skills/react-component/SKILL.md`
+  §5.2 for the full pattern.
 
 ## Copyright headers
 
