@@ -65,6 +65,7 @@ CLAUDE.md §"DynamoDB single table design" in sync):
 | `AUDIT#{date}#{hour}` | Immutable compliance audit trail | yes | Hour-sharded same as `LOG#`. TTL via `STARTER_AUDIT_RETENTION_DAYS` (default 365). |
 | `USER#{user_id}` | Human user records | no | `SK="META"`. Indexed by `UserEmailIndex` GSI on `GSI4PK=EMAIL#{email}`. |
 | `MGMT_STATE#{state}` | OAuth state parameter for mgmt UI login | yes | `SK="META"`. Short TTL — state is single-use. |
+| `EMAIL#{email}` | GSI key only (not a base PK) | n/a | Set as `GSI4PK` on `USER#` items to surface them on `UserEmailIndex`. There is no item with `PK="EMAIL#..."` — querying the GSI returns the underlying `USER#` row. |
 
 Adding a new prefix:
 
