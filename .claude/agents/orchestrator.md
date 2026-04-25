@@ -115,9 +115,9 @@ Pick the next issue from the queue per `issue-worker.md` §0 (priority, mileston
 
 After picking:
 
-1. Run `check` against the picked issue to verify it is not on the halt list
-2. Verify its `Blocked by #M` chain is fully resolved (all blockers closed)
-3. Print:
+1. Evaluate the §Halt conditions directly against the picked issue: bootstrap-halt list (`Part of #56` body marker), `epic`, `size:xl`, `status:design-needed`, `status:needs-info`, `product-decision-conflict`. Do **not** invoke `check #N` for this — `check` is for directive/description mismatch detection, not halt-condition validation. If any halt condition triggers, emit `HALT: <category> — <reason>` per §Output format and stop; do not produce a proposed-pick block.
+2. Verify its `Blocked by #M` chain is fully resolved (all blockers closed, including transitive blockers up to the depth limit in §`brief #N`). If unresolved, emit `HALT: blocked — ...` and stop.
+3. If no halts triggered, print:
 
 ```
 ## Proposed pick: #<N> — <title>
@@ -133,7 +133,7 @@ Work issue #<N>. <any context the human directive added>.
 - <halt reason if one applied — see §Halt conditions>
 ```
 
-**Halt without delegating. Output ends with the proposed-pick block above — nothing after it.** Do not invoke `issue-worker`. Do not append any "ready when you are", "let me know if you want me to proceed", or "shall I delegate?" closing sentence — the proposed-pick block is the entire response. The next user message is the resolution of this gate; treat its arrival, not silence, as approval. The picker is unproven and auto-delegation is deferred until it is — only an explicit `delegate #<N> to issue-worker` directive in a future message fires the delegation.
+**Halt without delegating. The proposed-pick block above is the entire response — no surrounding report, nothing after it.** This is the §Output format exception 1 — the trailing report sections (especially §Suggested next directive) are deliberately omitted because they invite hedge phrasing that would soft-resolve the human-confirmation gate. Do not invoke `issue-worker`. Do not append any "ready when you are", "let me know if you want me to proceed", or "shall I delegate?" closing sentence. The next user message is the resolution of this gate; treat its arrival, not silence, as approval. The picker is unproven and auto-delegation is deferred until it is — only an explicit `delegate #<N> to issue-worker` directive in a future message fires the delegation.
 
 ### `delegate #N to <agent>`
 
@@ -186,11 +186,16 @@ Identify which sub-issues are next-pickable (open, `status:ready`, blockers clea
 
 ## Halt conditions
 
-Halt cleanly without delegating when any of the following apply. Emit the halt as the first line of the response so it is unmissable:
+Halt cleanly without delegating when any of the following apply. Emit `HALT:` as a preamble line at the very top of the response — above the `## Orchestrator report` header — so it is unmissable. The structured report follows below with the same halt restated in §Halts:
 
 ```
 HALT: <category> — <reason>
+
+## Orchestrator report — <YYYY-MM-DD HH:MM UTC>
+...
 ```
+
+Exception: `work next` when a pick succeeds without triggering any halt produces only the proposed-pick block and no surrounding report or `HALT:` preamble — see §Output format and §Invocation modes / `work next`.
 
 Categories:
 
@@ -209,7 +214,7 @@ When halting on a directive-level problem (`directive-ambiguous`, `directive-mis
 
 ## Output format
 
-Every invocation produces a structured report so any human picking up the loop has the same view the previous session had. Skeleton:
+Every invocation produces a structured report so any human picking up the loop has the same view the previous session had — with two explicit exceptions documented below. Skeleton:
 
 ```
 ## Orchestrator report — <YYYY-MM-DD HH:MM UTC>
@@ -243,6 +248,11 @@ Every invocation produces a structured report so any human picking up the loop h
 ```
 
 Keep the report compact. The human reads this on every invocation — terse beats verbose.
+
+### Exceptions
+
+1. **`work next` successful pick — proposed-pick block only, no surrounding report.** When `work next <filter>` produces a pick without triggering any §Halt condition, the response is *only* the proposed-pick block defined in §Invocation modes / `work next`. No `## Orchestrator report` header, no §Live state / §In flight / §Just merged / §Halts / §Suggested next directive sections. This is deliberate: the trailing report sections (especially §Suggested next directive) invite hedge phrasing that would soft-resolve the human-confirmation gate.
+2. **Halts emit a `HALT:` preamble line above the report header.** When a §Halt condition triggers in any mode, the response opens with `HALT: <category> — <reason>` on its own line, a blank line, then the standard report — with the same halt restated in §Halts so the report stays self-contained. The preamble is unmissable; the report still gives full context. (Does not apply to `work next` successful picks per exception 1, since no halt has triggered there.)
 
 ---
 
