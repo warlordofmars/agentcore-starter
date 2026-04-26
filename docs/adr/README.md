@@ -32,3 +32,4 @@ What are the trade-offs, follow-on work, or constraints this decision creates?
 | [0005](0005-orchestrator-agent.md) | Orchestrator agent for cross-session sequencing and delegation | Accepted |
 | [0006](0006-skills-system.md) | Skills system for agent-loaded reference material | Accepted |
 | [0007](0007-orchestrator-protocol-codification.md) | Codify orchestrator protocols surfaced during skills epic | Accepted |
+| [0008](0008-issue-worker-push-discipline.md) | Issue-worker push discipline against wholesale-push damage | Accepted |

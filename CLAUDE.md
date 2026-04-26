@@ -281,12 +281,20 @@ All rights reserved.`).
    git checkout -b fix/my-fix origin/development
    ```
 
-2. Before `gh pr create`, rebase and verify clean history:
+2. Before `gh pr create`, rebase and verify clean history. The full
+   procedure — including the W4 shadow-branch fast-forward, the
+   `PRE_REBASE_SHA` capture for subsequent pushes, and the explicit-
+   refspec push forms — lives in [`.claude/agents/issue-worker.md`
+   §"Push discipline"](.claude/agents/issue-worker.md) and §6 ("Create PR")
+   of that same file. Read those sections; do not improvise. The
+   minimum-shape sketch:
 
    ```bash
    git fetch origin
+   # then: W4 shadow-branch fast-forward, immediately followed by W7
+   # ancestry check (W4 and W7 are a coupled pair — see
+   # issue-worker.md §"Push discipline" for the mechanical procedure)
    git rebase origin/development
-   git push --force-with-lease
    git log --oneline origin/development..HEAD  # must show ONLY your commits
    ```
 
@@ -300,7 +308,27 @@ All rights reserved.`).
    uv run inv e2e --env jc    # e2e tests against that env
    ```
 
-5. After pushing, watch CI (`gh run watch`) and fix any failures immediately.
+5. Push using the canonical procedure in
+   [`.claude/agents/issue-worker.md` §6](.claude/agents/issue-worker.md) —
+   first-push and subsequent-push paths each have a separate explicit-
+   refspec form that the W1–W7 rules require. Do not use bare `git push`
+   or `git push --force-with-lease` without an explicit refspec.
+
+6. After pushing, watch CI (`gh run watch`) and fix any failures immediately.
+
+All git push operations in this workflow — feature/fix branches in the
+"Opening a PR" flow above, the `release/*` branches in the "Releasing
+to production" flow below, and every push in the `issue-worker`
+autonomous cycle — are bound by the W1–W7 push-discipline rules in
+[`.claude/agents/issue-worker.md` §"Push discipline"](.claude/agents/issue-worker.md).
+W1 has two scopes: the **issue-worker scope** allows
+`feat/` / `fix/` / `chore/` only (the agent never creates release
+branches); the **wider project scope** (when humans run W1–W7 manually
+during the release flow below) extends the allowlist to include
+`release/`. Both scopes share the same rule shape — explicit refspecs,
+no wholesale pushes, no bare `git push`. ADR-0008 captures the rationale
+and the 2026-04-26 incident timeline. The rules themselves are the
+authoritative source — read them there.
 
 ### Merge strategy
 
@@ -358,7 +386,7 @@ gh pr merge --auto --merge
    ```bash
    git add CHANGELOG.md
    git commit -m "chore: prepare release vX.Y.Z"
-   git push -u origin release/vX.Y.Z
+   git push -u origin release/vX.Y.Z:release/vX.Y.Z   # explicit refspec (W3/W6)
    ```
 
 4. **Open a PR** from `release/vX.Y.Z` → `main`:
