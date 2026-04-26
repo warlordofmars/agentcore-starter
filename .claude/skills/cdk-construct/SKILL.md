@@ -61,7 +61,7 @@ forward into the partitioned shape:
 
 ### Construct-level vs composer-level helpers
 
-- **What's missing:** Whether helpers like `Edge.compress: bool` and `Secrets.validate_no_placeholders()` belong on the construct that owns the resource or on the composer that assembles them.
+- **What's missing:** Whether per-resource invariant helpers belong on the construct that owns the resource or on the composer that assembles them — for instance, an `Edge` construct *might* expose a `compress: bool` parameter, or a `Secrets` construct *might* expose a `validate_no_placeholders()` method, but the actual APIs will be decided in #48.
 - **Why deferred:** The boundary depends on whether the helper is a per-resource invariant (construct) or a stack-wide validation (composer); the partition PR is what draws the line.
 - **Unblocks when:** #48 places the first such helpers and the construct-vs-composer boundary becomes visible.
 
