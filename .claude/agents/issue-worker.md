@@ -99,6 +99,8 @@ git checkout -b feat/issue-<number>-<short-slug> origin/development
 git checkout -b chore/issue-<number>-<short-slug> origin/development
 ```
 
+The W4 shadow-branch fast-forward in `## Push discipline` does **not** apply here — these `git checkout -b` commands read the remote-tracking ref `origin/development` (just refreshed by `git fetch origin`), never local `development`, so a stale local shadow ref cannot poison the new feature branch's base. W4 governs the §6 rebase + push flow and the §7 CI fix-and-push loop, where the shadow refs can interact with push commands.
+
 ### 3. Implement
 
 Make the necessary changes. Follow all conventions in CLAUDE.md.
@@ -157,24 +159,35 @@ uv run inv e2e-local --tests tests/e2e/<relevant_file>.py
 
 ### 6. Create PR
 
-Rebase and verify clean history:
+Two paths depending on whether this branch has already been pushed.
+All push commands here are bound by the W1–W7 push-discipline rules
+in `## Push discipline` — re-read that section before running any
+push.
+
+**First push** (no remote tip exists yet):
 
 ```bash
 git fetch origin
+# Run the W4 shadow-branch fast-forward loop here (see ## Push discipline).
 git rebase origin/development
 git log --oneline origin/development..HEAD   # must show ONLY your commits
+git push -u origin <branch>:<branch>
 ```
 
-Push:
+**Subsequent push after rebase** (branch already on origin) — capture
+the previous remote tip *before* rebasing so `--force-with-lease` can
+pin to it:
+
 ```bash
-# first push of this branch
-git push -u origin <branch>
-
-# after a rebase on a branch already pushed
-git push --force-with-lease
+git fetch origin
+# Run the W4 shadow-branch fast-forward loop here (see ## Push discipline).
+PRE_REBASE_SHA=$(git rev-parse --verify --quiet origin/<branch>)   # capture BEFORE rebase
+git rebase origin/development
+git log --oneline origin/development..HEAD   # must show ONLY your commits
+git push --force-with-lease=<branch>:$PRE_REBASE_SHA origin <branch>:<branch>
 ```
 
-Create the PR. **Do not enable auto-merge yet if the linked issue is labelled `agent-safe`** — step 7.5 owns that for the Copilot-review flow.
+Create the PR. **Do not enable auto-merge here** — §7.5 is the only place that arms auto-merge, and only for `agent-safe` PRs. Non-`agent-safe` PRs halt at §7.5 for human review and merge.
 
 ```bash
 gh pr create --base development \
@@ -186,9 +199,6 @@ gh pr create --base development \
 
 ## Approach
 <any non-obvious decisions or interpretations of the issue>"
-
-# Only for PRs whose linked issue is NOT labelled `agent-safe`:
-gh pr merge --auto --squash --delete-branch
 ```
 
 ### 7. Monitor PR CI
@@ -201,7 +211,18 @@ gh run watch <run-id>
 If any check fails:
 1. Read the failure: `gh run view <run-id> --log-failed`
 2. Fix on the same branch
-3. `git push`
+3. Push using the canonical procedure in §6 — re-run the W1–W7
+   pre-push checks from `## Push discipline` (fetch, shadow-branch
+   fast-forward, `push.default` check), then push with the explicit
+   refspec form. If the fix is a forward-only update (new commits
+   appended, no rebase), use `git push origin <branch>:<branch>`.
+   If the fix required a fresh rebase, **re-capture
+   `PRE_REBASE_SHA=$(git rev-parse --verify --quiet origin/<branch>)`
+   before the rebase**, then use
+   `git push --force-with-lease=<branch>:$PRE_REBASE_SHA origin <branch>:<branch>`.
+   The `PRE_REBASE_SHA` from §6 is no longer valid — origin has moved
+   (your previous push completed), so the lease must pin to the new
+   remote tip captured before *this* rebase
 4. Get the new run ID: `gh run list --branch <branch> --limit 1`
 5. Return to watching
 
@@ -296,6 +317,185 @@ fi
 
 If the release milestone is drained, stop — do not unilaterally create a release branch. If the milestone is non-release or still has open items, pick up the next issue normally.
 
+## Push discipline
+
+The 2026-04-26 force-push incident rewound `origin/development` by 11 merges. Root cause: an issue-worker session in a long-lived clone issued a wholesale `git push` that targeted every local branch with a remote counterpart, including a stale local `development` ref. Bash history was unrecoverable (Claude Code's Bash tool runs in a non-interactive shell), so the exact command is unknown — which means the rules below forbid the *category* of operations that can cause this damage, not just the specific candidate commands. Verbal hedges cover what they explicitly say; everything else is open. See ADR-0008 for the full rationale and the incident timeline.
+
+Rules W1–W7 are mechanical pattern-matches against command strings or git config values. They apply to every git operation in the issue cycle. Branch protection on `development` (#50) is the load-bearing GitHub-side defense; W1–W7 are the agent-side defense layered on top — both are needed because branch protection only catches what reaches the protected branch, and W1–W7 catch dangerous categories before they reach origin at all.
+
+### W1 — Allowlist of valid push targets
+
+Push only to the current feature branch. Pushing to `development`, `main`, or any branch other than the explicitly-named feature branch created in §2 is forbidden.
+
+**Mechanical check:** before any `git push`, run `git rev-parse --abbrev-ref HEAD` and confirm the result starts with `feat/`, `fix/`, or `chore/`. If HEAD is `development`, `main`, or any other branch, halt — do not push.
+
+The `release/` prefix is also a valid push target in the wider project workflow (see CLAUDE.md "Releasing to production"), but the issue-worker never creates a release branch — release cutting is a human-operated flow outside this agent's scope. So for this agent, the allowlist is exactly `feat/` / `fix/` / `chore/`.
+
+### W2 — Prohibition on wholesale pushes
+
+`git push --all`, `git push --mirror`, and any push command without an explicit `<source>:<destination>` refspec are forbidden. These commands push every local branch with a remote counterpart and are the most likely root cause of the 2026-04-26 incident.
+
+**Mechanical check:** the command string must not contain the substrings ` --all`, ` --mirror`, or `--all ` / `--mirror ` (any position). The command must contain a `<branch>:<branch>` refspec.
+
+### W3 — Prohibition on bare `git push`
+
+Every push must specify `<feature-branch>:<feature-branch>` explicitly. Bare `git push` (no arguments) and `git push origin` (no refspec) are forbidden — the default-upstream behaviour is too easy to misfire on a stale branch.
+
+**Mechanical check:** the command string must contain a colon-separated refspec where both sides equal the current feature branch name from `git rev-parse --abbrev-ref HEAD`.
+
+This supersedes the §6 push examples (`git push -u origin <branch>`, `git push --force-with-lease`). The corrected canonical forms are:
+
+```bash
+# first push of this branch
+git push -u origin <branch>:<branch>
+
+# after a rebase on a branch already pushed
+git push --force-with-lease=<branch>:<expected-sha> origin <branch>:<branch>
+```
+
+The `--force-with-lease=<branch>:<expected-sha>` form (explicit SHA, not the bare default-lease form) is required because the bare lease's default uses the local clone's remote-tracking ref, which can be ahead of reality if a fetch happened between rebase and push. `<expected-sha>` is the **previous remote tip of the feature branch** — the SHA at `origin/<feature-branch>` *before* the rebase rewrote your local history. Capture it before rebasing with `git rev-parse origin/<branch>`; the lease holds only if origin's branch tip still matches that SHA at push time. (It is **not** the SHA you rebased onto, e.g. `origin/development`'s HEAD — pinning to that would refuse pushes against any unchanged feature branch and accept pushes against a feature branch someone else amended in the meantime.)
+
+### W4 — Required pre-fetch and shadow-branch fast-forward
+
+At the start of any branch-modifying sequence (the §6 rebase + push flow, the §7 CI fix-and-push loop), run `git fetch origin` and then **fast-forward the protected shadow branches** (`development`, `main`) to their origin counterparts. The shadow branches must never have local commits or diverge from origin — they exist purely to mirror origin.
+
+W4 fires once per cycle, at the top of the sequence (immediately before the rebase or fix-and-push step). It does not fire again immediately before each push within that sequence — `--force-with-lease` on the feature branch already protects against origin moving on *that* branch, and `development` / `main` moving between rebase and push doesn't affect a push targeting the feature branch (W6 forbids cross-branch refspecs). The rule's purpose is preventing the stale-shadow-then-wholesale-push collateral that caused the 2026-04-26 incident, not chasing every possible window where the shadow refs could change.
+
+The current feature branch is **not** subject to this fast-forward step. After local commits or a rebase, the feature branch is intentionally ahead of (or has diverged from) its remote — that's the working state. W4 only governs the long-lived shadow refs.
+
+W4 is paired with W7: W4 absorbs healthy lag by fast-forwarding the shadow refs that can be moved; W7 then verifies — via an ancestry check — that any shadow ref W4 *couldn't* move (worktree-locked) is still a clean ancestor of origin. Both rules must run in this order. W4 alone cannot distinguish healthy lag (worktree-locked, harmless) from true divergence (the stale-clone signal); the contract is W4 absorbs what it can, W7 verifies the rest. W4's individual `git fetch` / `git merge --ff-only` invocations therefore tolerate failure — a non-fast-forward error there means *either* divergence *or* worktree-lock, and only W7 can tell those apart. Removing W7 (or running it before W4) breaks the contract and re-opens the silent-divergence gap.
+
+**Mechanical procedure:**
+
+```bash
+git fetch origin
+# Fast-forward each shadow branch that exists locally.
+# Three cases:
+#   - branch isn't checked out anywhere → `fetch origin <b>:<b>` (silent fast-forward)
+#   - branch IS the currently-checked-out HEAD → `merge --ff-only origin/<b>`
+#     (since `fetch <b>:<b>` refuses to update HEAD)
+#   - branch is checked out in another linked worktree → fetch and merge both
+#     refuse to update; that's NOT divergence, just worktree-locked. The
+#     individual command failure is tolerated here; W7's ancestry check
+#     below is what actually validates the ref. The `|| true` is therefore
+#     a deliberate handoff to W7, not a swallowed error: if origin/<b>
+#     contains local <b>, the lag is healthy and the worktree owner can
+#     fast-forward at their leisure; only true divergence (origin/<b>
+#     is NOT a descendant of <b>) is the stale-clone signal, and W7
+#     halts on that case.
+CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+for shadow in development main; do
+  git show-ref --verify --quiet "refs/heads/$shadow" || continue
+  if [ "$CURRENT_BRANCH" = "$shadow" ]; then
+    git merge --ff-only "origin/$shadow" || true   # see W7 — divergence is its job
+  elif git worktree list --porcelain | grep -q "branch refs/heads/$shadow$"; then
+    # Locked by another worktree — leave the ref alone; W7's ancestry check
+    # distinguishes healthy lag from true divergence.
+    :
+  else
+    git fetch origin "$shadow:$shadow" || true     # see W7 — divergence is its job
+  fi
+done
+```
+
+**W4 must always be followed immediately by W7** — there is no scenario in which W4 alone is sufficient. The transcript-shaped counter-example below demonstrates the W4→W7 handoff in action.
+
+After this, every shadow branch that wasn't already at origin's HEAD is either now at origin's HEAD (normal merged-PR-since-last-cycle case, silently absorbed) or remains at its previous SHA because another worktree owns it or because it has actually diverged. The actual divergence-vs-healthy-lag distinction is left to W7's ancestry check, which fires next.
+
+### W5 — Pre-push validation: `push.default` check
+
+Before any `git push`, verify `push.default` is not set to the legacy `matching` value. `matching` pushes every local branch that has a same-named remote counterpart, which is how a bare `git push` can become a wholesale push. The safe values are `simple`, `current`, `nothing`, or unset on Git ≥ 2.0 (where `simple` is the built-in default).
+
+**Mechanical check:** the explicit value (if any) returned by `git config --get push.default` must not equal `matching`. Concretely: the command `git config --get push.default` either (a) prints `simple`, `current`, or `nothing` and exits 0, or (b) prints nothing and exits non-zero (config unset). Either case passes. If the command prints `matching`, halt and surface.
+
+The brittle case — Git < 2.0 where unset `push.default` defaulted to `matching` — is documented but not enforced here; modern Git installs (the only ones supported by this project's CI image and developer tooling) have `simple` as the built-in default.
+
+### W6 — Pre-push validation: refspec verification
+
+The push refspec source side must equal the current branch from `git rev-parse --abbrev-ref HEAD`. The destination side must equal the same branch name. Pushing `feat/issue-89:development` is forbidden even if the source is correct — the destination must match.
+
+**Mechanical check:** parse the `<src>:<dst>` refspec from the push command. Both `<src>` and `<dst>` must equal the output of `git rev-parse --abbrev-ref HEAD`.
+
+### W7 — Stale-clone signal check
+
+After W4 has run (fetch + fast-forward), if any **protected shadow branch** (local `development`, local `main`) is no longer a strict ancestor of its `origin/<branch>` HEAD, the shadow has actually *diverged* — it has local commits or was based on a different line of history. Surface this as a stale-clone signal before any push. Halt and surface — do not silently block, and do not auto-resolve.
+
+The W4 fast-forward step absorbs most healthy-lag cases by moving the shadow ref to origin's HEAD. The remaining healthy-lag case is the worktree-locked variant, where another linked worktree owns the ref and W4 left it alone. That case still passes W7 because local is still an ancestor of origin (the worktree owner just hasn't fast-forwarded yet). W7 fires only on **true divergence**: local has commits not on origin's line of history.
+
+The current feature branch (`feat/`, `fix/`, `chore/`) is exempt from W7 — by design the feature branch will be ahead of its remote between commits and pushes, and the W3/W6 explicit-refspec rules already constrain pushes from it.
+
+**Mechanical check:** after the W4 fast-forward loop, for each branch in the closed set `{development, main}` that exists locally, run `git merge-base --is-ancestor <branch> origin/<branch>`. The check must succeed (exit 0) — meaning local `<branch>` is an ancestor of `origin/<branch>`, the healthy-lag case. If the check fails (exit 1), local has diverged; halt with the exact sentinel:
+
+```
+HUMAN_INPUT_REQUIRED: stale-clone signal — local <branch> at <sha-short> differs from origin/<branch> at <sha-short>; this clone may be a long-lived workspace with stale baselines (see W7 / ADR-0008)
+```
+
+This rule subsumes #91 (clone-hygiene). The procedural alternatives (decommission per-purpose clones; canonical-clone-with-worktrees) don't survive context loss across agent sessions; W7 catches the actual failure mode mechanically at push time, which is where the damage happens. The user can explicitly override after the halt — the rule surfaces, it doesn't silently block legitimate stale-clone work.
+
+### Worked counter-example — what the agent MUST refuse
+
+Transcript shape, parallel to the G7/#79 exemplar in `.claude/agents/orchestrator.md`. The scenario is the 2026-04-26 incident reconstructed with the rules in force.
+
+**Setup:** issue-worker session running in `agentcore-starter-spike` (a long-lived clone created for issue #17, kept past its purpose). Local `development` is at `943923a` (the SEC-1 fix from earlier that day). Origin's `development` is at `14ea24e` (post-PR-#80 merge). The agent has just rebased its feature branch `feat/issue-77-scope-check` onto `origin/development` and is about to push.
+
+**What the rules require, in order:**
+
+```
+$ git fetch origin                                           # W4 prerequisite
+$ git rev-parse --abbrev-ref HEAD                            # W1, W6
+feat/issue-77-scope-check
+$ git config --get push.default                              # W5
+matching
+```
+
+**HALT — W5 check failed.** `push.default = matching` is the legacy value that turns any bare `git push` into a wholesale push of every local branch with a remote counterpart. The agent does NOT proceed to push. Instead, it surfaces:
+
+```
+HUMAN_INPUT_REQUIRED: push.default is 'matching' — refusing to push (W5).
+This config is the legacy default and can turn any bare 'git push' into a
+wholesale push. Either set 'git config push.default simple' for this repo,
+or run the push manually with an explicit refspec after acknowledging the
+risk.
+```
+
+**Suppose the human resolves W5** (`git config push.default simple`). The agent re-checks. W4 now runs the fetch + fast-forward loop:
+
+```
+$ git fetch origin
+$ git fetch origin development:development
+   943923a..14ea24e  development -> development
+```
+
+**W4 absorbs the lag.** Local `development` was a clean ancestor of origin (no local commits), so the fast-forward succeeds silently and local moves from `943923a` to `14ea24e`. This is the healthy-but-lagging case, not the divergence case.
+
+**W7 check passes** because after the W4 fast-forward, `git merge-base --is-ancestor development origin/development` succeeds — local `development` (now at `14ea24e`) is trivially an ancestor of itself.
+
+**The push attempt is still blocked.** The agent's actual push command was a wholesale push variant (the most plausible reconstruction of the 2026-04-26 incident). W2 forbids `--all` / `--mirror` and requires an explicit `<src>:<dst>` refspec; W3 forbids the bare `git push` and `git push origin` forms. The W1/W6 refspec checks then constrain any push that does execute to `feat/issue-77-scope-check:feat/issue-77-scope-check` — the destination side cannot be `development`. The wholesale push the incident depended on is mechanically impossible.
+
+**The W7 halt scenario** is a different shape. Suppose instead local `development` had been amended directly (e.g. a `git commit --amend` made on the wrong branch, or a local merge that wasn't pushed). After fetch + attempted fast-forward:
+
+```
+$ git fetch origin development:development
+! [rejected]  development -> development  (non-fast-forward)
+$ git merge-base --is-ancestor development origin/development
+$ echo $?
+1
+$ git rev-parse development
+abc1234...  # local-amended SHA, not on origin's line of history
+$ git rev-parse origin/development
+14ea24e...
+```
+
+The ancestry check fails because local diverged. W7 then surfaces:
+
+```
+HUMAN_INPUT_REQUIRED: stale-clone signal — local development at abc1234
+differs from origin/development at 14ea24e; this clone may be a long-lived
+workspace with stale baselines (see W7 / ADR-0008)
+```
+
+**The contrast with the actual incident:** at 23:07:07 EDT on 2026-04-25, none of these checks existed. The agent ran whatever push variant it ran, the push targeted every local branch with a remote counterpart (including the lagging local `development` at `943923a`), and `origin/development` got rewound by 11 merges. Branch protection (#50) was not yet applied. Recovery succeeded only because of accidental redundancy across multiple clones. With W1–W7 in force, the wholesale push is rejected by W2/W3 before it reaches origin at all; even in a clone where W4's fast-forward would mask the lag, the explicit-refspec rules prevent the cross-branch collateral damage. W7 catches the additional case where local actually diverged — the residual risk W4 can't absorb.
+
 ## Keeping CLAUDE.md current
 
 If you discover CLAUDE.md is missing information needed to work effectively, update it in the same PR.
@@ -325,6 +525,10 @@ Halt **only** in these situations:
 - A change requires modifying `infra/stacks/starter_stack.py` in a way that could affect production resources
 - The same CI check has failed 3 times without a clear fix
 - A release milestone drains to zero open non-epic issues
+- **Any of the W1–W7 push-discipline checks fails** (see `## Push discipline`). W5 fires on `push.default = matching`; W7 fires on protected-shadow-branch divergence after the W4 fast-forward attempt. These halts surface a sentinel and stop; they do not retry. Other W-rule violations (W1/W2/W3/W6) indicate a malformed push command and should be reformulated by the agent before retrying — but if the malformed shape persists across two attempts, halt with `HUMAN_INPUT_REQUIRED: push command repeatedly violates W1–W7 (see ## Push discipline)`.
+- The §7.3 code-reviewer loop exhausts 3 fix iterations with `FAIL` items remaining (sentinel: `HUMAN_INPUT_REQUIRED: code-reviewer has unresolved blockers on #NNN after 3 fix attempts`)
+- The §7.5 Copilot review loop exhausts 5 iterations with unresolved findings (sentinel: `HUMAN_INPUT_REQUIRED: Copilot loop ended with open findings on #NNN`) or surfaces an ambiguous architecturally-significant finding (sentinel: `HUMAN_INPUT_REQUIRED: Copilot flagged X on #NNN — unclear call`)
+- The PR is non-`agent-safe` and reaches the §7.5 ready-for-merge state (sentinel: `HUMAN_INPUT_REQUIRED: PR #NNN ready for human review + merge`)
 
 In all other cases, make a judgment call and proceed.
 
