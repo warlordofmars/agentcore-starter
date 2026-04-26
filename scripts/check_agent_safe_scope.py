@@ -52,42 +52,34 @@ from typing import Literal
 # ── Area-label → path-glob map ────────────────────────────────────────────────
 #
 # Per issue #77 refinements §"Area-label fallback specifics", only bounded
-# areas map cleanly to path globs. Meta-areas (dx, security, compliance,
-# marketing, growth, seo, design, ops, reliability, performance,
-# observability, ux, a11y) span the codebase and cannot be path-mapped —
-# their presence triggers a WARN fall-through, not a FAIL.
+# areas map cleanly to path globs. Meta-areas span the codebase and cannot be
+# path-mapped — their presence triggers a WARN fall-through, not a FAIL.
 #
-# These maps are forward-looking, NOT derived from the live label set.
-# Some entries (e.g. `mcp`, `sdk` in BOUNDED_AREA_GLOBS; most of META_AREAS)
-# are not yet live labels but are pre-mapped so a future label addition
-# doesn't silently fall through to WARN. Defensive — see follow-up issue
-# for ground-truthing the maps against the live taxonomy.
+# Both maps are ground-truthed to the live label set (issue #90). When a new
+# area label lands, refresh from the live taxonomy and extend whichever map
+# applies. Canonical refresh procedure:
+#
+#     gh api /repos/warlordofmars/agentcore-starter/labels --paginate \
+#         --jq '.[].name'
+#
+# Filter out priority:*, size:*, status:*, type labels (`bug`, `enhancement`,
+# `chore`), special labels (`agent-safe`, `epic`), and auto-injected GitHub
+# labels (`dependencies`, `python`, `javascript`, `github_actions`).
 
 BOUNDED_AREA_GLOBS: dict[str, list[str]] = {
     "api": ["src/starter/api/**", "tests/unit/test_api*.py", "tests/unit/test_agents_api.py"],
     "auth": ["src/starter/auth/**", "tests/unit/test_auth_*.py", "tests/e2e/test_auth_*.py"],
-    "mcp": ["src/starter/mcp/**", "tests/unit/test_mcp_*.py"],
     "infra": ["infra/**"],
     "ui": ["ui/**"],
     "documentation": ["docs/**", "docs-site/**", "README.md", "CHANGELOG.md"],
     "ci": [".github/workflows/**", "scripts/**"],
-    "sdk": ["sdk/**"],
 }
 
 META_AREAS: set[str] = {
     "dx",
     "security",
-    "compliance",
-    "marketing",
-    "growth",
-    "seo",
-    "design",
-    "ops",
     "reliability",
-    "performance",
     "observability",
-    "ux",
-    "a11y",
 }
 
 
@@ -139,6 +131,23 @@ def parse_files_to_touch(body: str) -> list[str] | None:
     Extract the list of allowed paths/globs from an issue body's
     "Files to touch" section.
 
+    Bullets containing backtick-quoted tokens are preferred — backticks are
+    the unambiguous, canonical form for path markers. Bullets without
+    backticks fall through to a tokenisation pass that accepts a token as a
+    path if it (1) consists only of path-safe characters
+    (`[\\w./@\\-+]`) AND (2) either contains `/` or ends in a file
+    extension matching `\\.[A-Za-z]\\w+$` — first char of extension must be
+    a letter, total extension length must be >= 2 chars. The path-safe
+    character filter rejects prose fragments like `(e.g.` or `done.`; the
+    letter-leading rule rejects version-like tokens like `v1.0` (`\\w`
+    includes digits); the >=2-char rule rejects single-letter remnants like
+    `e.g` (rstripped from `e.g.`).
+
+    Edge case: bare top-level files with no extension (e.g. `Makefile`) are
+    NOT picked up by the no-backtick fallback. The canonical workaround is
+    to wrap the token in backticks (e.g. `` `Makefile` ``); these are rare
+    enough in practice that requiring backticks is a small cost.
+
     Returns:
         - A list of path strings (may be empty) if the heading is present.
         - None if no `## Files to touch` / `### Files to touch` heading is
@@ -178,16 +187,31 @@ def parse_files_to_touch(body: str) -> list[str] | None:
         # Tokenise the bullet on whitespace + common conjunctions/punctuation
         # so a bullet like `- Edit: src/a.py and src/b.py` produces two paths,
         # not one mashed-together string. Each token is then accepted only if
-        # it looks like a path (has a `/`) or matches a known top-level file.
+        # it looks like a path (has a `/` or ends in a file extension) AND
+        # consists of path-safe characters only — that filter rejects prose
+        # fragments like `(e.g.` or `done.` that would otherwise match the
+        # extension regex and produce phantom paths the diff can't satisfy.
         for raw_token in re.split(r"[\s,]+|\band\b", cleaned):
             token = raw_token.strip().rstrip(",.;")
             if not token:
                 continue
-            looks_like_path = "/" in token or token in {
-                "CLAUDE.md",
-                "README.md",
-                "CHANGELOG.md",
-            }
+            # Path-safe character filter: only word chars, dot, slash, hyphen,
+            # plus, at-sign, underscore (already in \w). Anything else (parens,
+            # quotes, colons, brackets) marks the token as prose, not a path.
+            if not re.fullmatch(r"[\w./@\-+]+", token):
+                continue
+            # A token looks like a path if it contains `/` OR ends in a file
+            # extension whose first character is a letter and whose total
+            # length is >= 2 characters. The letter-leading rule rejects
+            # version-like tokens such as `v1.0` (`\w` includes digits); the
+            # >=2-char rule rejects tokens like `e.g` (rstripped from
+            # `e.g.`) that would otherwise be misclassified as paths.
+            # Tokens with no extension and no `/` (e.g. `Makefile`) are
+            # dropped — wrap them in backticks for explicit acceptance.
+            # Trade-off: single-letter real extensions (`.c`, `.r`) are also
+            # rejected by the no-backtick fallback; backticks remain the
+            # canonical workaround. None exist in this repo today.
+            looks_like_path = "/" in token or bool(re.search(r"\.[A-Za-z]\w+$", token))
             if looks_like_path:
                 paths.append(token)
 
