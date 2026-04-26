@@ -136,11 +136,12 @@ def parse_files_to_touch(body: str) -> list[str] | None:
     backticks fall through to a tokenisation pass that accepts a token as a
     path if it (1) consists only of path-safe characters
     (`[\\w./@\\-+]`) AND (2) either contains `/` or ends in a file
-    extension whose first character is a letter (matching
-    `\\.[A-Za-z]\\w*$`). The path-safe character filter rejects prose
-    fragments like `(e.g.` or `done.`; the letter-leading extension rule
-    rejects version-like tokens like `v1.0` or `2.10` that would otherwise
-    match `\\.\\w+$` because `\\w` includes digits.
+    extension matching `\\.[A-Za-z]\\w+$` — first char of extension must be
+    a letter, total extension length must be >= 2 chars. The path-safe
+    character filter rejects prose fragments like `(e.g.` or `done.`; the
+    letter-leading rule rejects version-like tokens like `v1.0` (`\\w`
+    includes digits); the >=2-char rule rejects single-letter remnants like
+    `e.g` (rstripped from `e.g.`).
 
     Edge case: bare top-level files with no extension (e.g. `Makefile`) are
     NOT picked up by the no-backtick fallback. The canonical workaround is
@@ -200,12 +201,17 @@ def parse_files_to_touch(body: str) -> list[str] | None:
             if not re.fullmatch(r"[\w./@\-+]+", token):
                 continue
             # A token looks like a path if it contains `/` OR ends in a file
-            # extension whose first character is a letter (so version-like
-            # tokens such as `v1.0` are NOT treated as paths — those would
-            # match `\.\w+$` because `\w` includes digits). Tokens with no
-            # extension and no `/` (e.g. `Makefile`) are dropped — wrap them
-            # in backticks for explicit acceptance.
-            looks_like_path = "/" in token or bool(re.search(r"\.[A-Za-z]\w*$", token))
+            # extension whose first character is a letter and whose total
+            # length is >= 2 characters. The letter-leading rule rejects
+            # version-like tokens such as `v1.0` (`\w` includes digits); the
+            # >=2-char rule rejects tokens like `e.g` (rstripped from
+            # `e.g.`) that would otherwise be misclassified as paths.
+            # Tokens with no extension and no `/` (e.g. `Makefile`) are
+            # dropped — wrap them in backticks for explicit acceptance.
+            # Trade-off: single-letter real extensions (`.c`, `.r`) are also
+            # rejected by the no-backtick fallback; backticks remain the
+            # canonical workaround. None exist in this repo today.
+            looks_like_path = "/" in token or bool(re.search(r"\.[A-Za-z]\w+$", token))
             if looks_like_path:
                 paths.append(token)
 

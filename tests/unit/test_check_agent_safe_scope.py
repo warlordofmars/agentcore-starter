@@ -502,6 +502,29 @@ def test_fix1_version_like_tokens_are_not_treated_as_paths():
     assert "2.10" not in parsed
 
 
+def test_fix1_unparenthesised_abbreviations_are_not_treated_as_paths():
+    """Issue #90 Fix 1 hardening (Copilot iter 3): tokens like `e.g.` in
+    prose without parens get rstripped to `e.g`, which would pass both the
+    path-safe filter AND the letter-leading extension regex (`.g` starts
+    with `g`). The extension rule is tightened to require >=2 chars after
+    the dot, rejecting `.g` while still accepting `.py`, `.md`, `.js`."""
+    body = """## Files to touch
+
+- Edit: src/foo.py e.g. for handling auth
+- Edit: src/bar.py i.e. the main entry point
+
+## Next
+"""
+    parsed = scope_check.parse_files_to_touch(body)
+    assert parsed is not None
+    # Real paths picked up.
+    assert "src/foo.py" in parsed
+    assert "src/bar.py" in parsed
+    # Abbreviations must NOT be classified as paths.
+    assert "e.g" not in parsed
+    assert "i.e" not in parsed
+
+
 def test_fix1_bare_top_level_file_without_extension_is_rejected():
     """Issue #90 Fix 1 documented edge case: tokens without `/` and without
     a file extension (e.g. `Makefile`) still drop. Backticks are the
