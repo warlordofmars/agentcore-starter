@@ -199,6 +199,41 @@ Note: this confirms a test file *exists* — CI enforces the 100% coverage numbe
 
 ---
 
+### 12. agent-safe scope boundary
+
+Per issue #77, an `agent-safe` PR's diff must stay inside the linked
+issue's stated scope — ride-along edits to out-of-scope files (CLAUDE.md,
+other agent files, unrelated code) must not auto-merge. This is the
+friendly first-line gate; `.github/workflows/agent-safe-scope.yml` is the
+unbypassable CI backstop that runs the exact same script.
+
+Run the scope check on every PR — the script handles the agent-safe gate
+itself by resolving the linked issue's labels:
+
+```bash
+uv run python scripts/check_agent_safe_scope.py --pr <PR>
+```
+
+Map the script's verdict directly:
+
+- exit 0 with `verdict: PASS (skipped)` → `PASS` (linked issue is not
+  `agent-safe`; check does not apply)
+- exit 0 with `verdict: PASS` → `PASS`
+- exit 0 with `verdict: WARN` → `WARN` (issue lacks "Files to touch" and
+  has no clean area-label mapping; cannot verify mechanically)
+- exit 1 with `verdict: FAIL` → `FAIL` — list the out-of-scope files in
+  the finding. Per issue #77 refinements §"Escape-hatch policy", the agent
+  must NOT edit the issue body to retroactively expand scope. Either
+  drop the out-of-scope edits or stop and ask the human to strip the
+  `agent-safe` label.
+
+The script is the single source of truth — both this check and the CI
+workflow call into it via `scripts/check_agent_safe_scope.py`. Unit tests
+covering the parser + comparator live in
+`tests/unit/test_check_agent_safe_scope.py`.
+
+---
+
 ## Output format
 
 After running all checks, emit a structured report:

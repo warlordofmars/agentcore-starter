@@ -544,6 +544,14 @@ This section defines the taxonomy.
   this label, the agent still runs Copilot review (everyone benefits
   from a second opinion) but then stops for human merge.
 
+  Issues carrying `agent-safe` MUST also include a `## Files to touch`
+  (or `### Files to touch`) section in the body listing the files the
+  PR is allowed to touch. The mechanical scope-boundary check
+  (`scripts/check_agent_safe_scope.py`, run by both `code-reviewer`
+  and the `agent-safe-scope.yml` CI workflow) blocks any PR whose diff
+  strays outside that section. See issue #77 for the design rationale
+  and edge-case handling.
+
 ### Issue creation rules
 
 When filing a new issue:
