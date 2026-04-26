@@ -1,8 +1,8 @@
 name: agent-safe scope check
 
 # Mechanical scope-boundary backstop for `agent-safe` PRs (issue #77).
-# When a PR labelled `agent-safe` ships, its diff must stay inside the linked
-# issue's stated scope. This workflow runs the same check that
+# When a PR's linked issue is labelled `agent-safe`, the PR's diff must stay
+# inside the issue's stated scope. This workflow runs the same check that
 # `code-reviewer` runs pre-merge — the second layer of defence-in-depth so a
 # slipped-through breach (PR #76 scenario) gets blocked at the branch
 # protection layer regardless of whether the agent loop noticed.
@@ -10,12 +10,19 @@ name: agent-safe scope check
 # Trigger types per issue #77 refinements §"Race condition handling":
 #   opened       — fire on PR creation
 #   synchronize  — fire on every push (catches diff drift)
-#   labeled      — fire when `agent-safe` is added mid-PR
-#   unlabeled    — fire when `agent-safe` is removed (job becomes neutral)
-#   edited       — fire when the PR body is edited (linked-issue resolution)
+#   labeled      — fire when labels change on the PR (cheap; lets the
+#                  script re-resolve the linked issue's labels too)
+#   unlabeled    — symmetric with labeled
+#   edited       — fire when the PR body is edited (the body's
+#                  `Closes #N` line is the source of truth for the linked
+#                  issue, so an edit can change the gate's resolution)
 #
-# The job is conditioned on `agent-safe` being present so non-`agent-safe`
-# PRs see a no-op pass.
+# The job runs unconditionally on every PR. The `agent-safe` label lives on
+# the linked **issue** (per CLAUDE.md taxonomy), not on the PR, so a
+# conditional like `contains(...labels.*.name, 'agent-safe')` evaluated
+# against the PR's labels would skip nearly every real agent-safe PR.
+# Instead, the script resolves the linked issue's labels via `gh` and emits
+# a no-op PASS when `agent-safe` is absent.
 #
 # Branch protection: this check must be added to the required-checks list
 # for `development` (and `main`) for the gate to actually block merge —
@@ -34,7 +41,6 @@ jobs:
   scope-check:
     name: Scope check (agent-safe PRs)
     runs-on: ubuntu-latest
-    if: contains(github.event.pull_request.labels.*.name, 'agent-safe')
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
 

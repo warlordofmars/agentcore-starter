@@ -23,13 +23,19 @@ CLI usage:
         # on FAIL.
 
     python scripts/check_agent_safe_scope.py --issue-body-file body.md \\
-        --issue-labels 'area:ui,priority:p2' --diff-files-file files.txt
+        --issue-labels 'ui,priority:p2,agent-safe' --diff-files-file files.txt
         # offline mode for tests / dry runs.
 
-The check only fires when the PR is labelled `agent-safe`. Callers are
-responsible for that gate; this module does not consult labels other than the
-issue's `area:*` labels (used as a fallback when the issue body lacks a
-"Files to touch" section).
+Gating: the CLI resolves the linked issue's labels and only runs the scope
+comparison when the issue carries `agent-safe`. Non-agent-safe PRs see a
+no-op PASS so the workflow can run unconditionally on every PR (the
+`agent-safe` label lives on the **issue**, not the PR, per CLAUDE.md
+taxonomy — gating the workflow itself on PR labels would skip nearly every
+real agent-safe PR).
+
+The library functions (`evaluate`, `parse_files_to_touch`,
+`area_label_paths`, `check_scope`) do not perform the agent-safe gate
+themselves — they assume the caller has already decided the check applies.
 """
 
 from __future__ import annotations
@@ -161,12 +167,23 @@ def parse_files_to_touch(body: str) -> list[str] | None:
             r"^(New|Edit|Modify|Update|Add):\s*", "", bullet.strip(), flags=re.IGNORECASE
         )
         cleaned = cleaned.strip().rstrip(",.;")
-        # Skip purely descriptive bullets that don't look like paths
-        # (heuristic: a path has a `/` or is one of a few known top-level
-        # files like CLAUDE.md / README.md / CHANGELOG.md).
-        looks_like_path = "/" in cleaned or cleaned in {"CLAUDE.md", "README.md", "CHANGELOG.md"}
-        if cleaned and not cleaned.startswith("`") and looks_like_path:
-            paths.append(cleaned)
+        if not cleaned or cleaned.startswith("`"):
+            continue
+        # Tokenise the bullet on whitespace + common conjunctions/punctuation
+        # so a bullet like `- Edit: src/a.py and src/b.py` produces two paths,
+        # not one mashed-together string. Each token is then accepted only if
+        # it looks like a path (has a `/`) or matches a known top-level file.
+        for raw_token in re.split(r"[\s,]+|\band\b", cleaned):
+            token = raw_token.strip().rstrip(",.;")
+            if not token:
+                continue
+            looks_like_path = "/" in token or token in {
+                "CLAUDE.md",
+                "README.md",
+                "CHANGELOG.md",
+            }
+            if looks_like_path:
+                paths.append(token)
 
     return paths
 
@@ -176,15 +193,32 @@ def parse_files_to_touch(body: str) -> list[str] | None:
 
 def area_label_paths(labels: list[str]) -> list[str] | None:
     """
-    Map area:* labels on the issue to their path globs.
+    Map area labels on the issue to their path globs.
+
+    The repo uses bare area labels (e.g. `ui`, `api`, `auth`) per CLAUDE.md
+    §Backlog labels and milestones — NOT prefixed with `area:`. This function
+    accepts both forms (`ui` and `area:ui`) for forward-compatibility, but
+    the bare form is canonical.
+
+    Identifying which labels are area labels:
+        Anything that matches a key in `BOUNDED_AREA_GLOBS` or `META_AREAS`
+        is considered an area label. Standard non-area labels (priority:*,
+        size:*, status:*, type labels like `enhancement`, special labels
+        like `agent-safe`) are filtered out.
 
     Returns:
-        - A list of globs if every area:* label maps to a bounded area.
+        - A list of globs if every area label maps to a bounded area.
         - None if the issue carries no area labels, or if any area label is a
           meta-area (per the BOUNDED_AREA_GLOBS / META_AREAS partition).
           Meta-area presence forces WARN — they cannot be path-mapped.
     """
-    area_labels = [label.removeprefix("area:") for label in labels if label.startswith("area:")]
+    # Strip optional `area:` prefix; the repo uses bare names but accept both.
+    candidates = [label.removeprefix("area:") for label in labels]
+
+    # Filter to labels that are recognised as areas (bounded or meta). This
+    # naturally drops priority:*, size:*, status:*, agent-safe, enhancement,
+    # bug, etc.
+    area_labels = [c for c in candidates if c in BOUNDED_AREA_GLOBS or c in META_AREAS]
     if not area_labels:
         return None
 
@@ -192,11 +226,8 @@ def area_label_paths(labels: list[str]) -> list[str] | None:
     for area in area_labels:
         if area in META_AREAS:
             return None
-        if area in BOUNDED_AREA_GLOBS:
-            globs.extend(BOUNDED_AREA_GLOBS[area])
-        else:
-            # Unknown area label — be conservative and treat as meta.
-            return None
+        # area is in BOUNDED_AREA_GLOBS by the filter above.
+        globs.extend(BOUNDED_AREA_GLOBS[area])
 
     return globs
 
@@ -395,6 +426,32 @@ def main(argv: list[str] | None = None) -> int:
             diff_files = [line.strip() for line in f if line.strip()]
         issue_labels = [label.strip() for label in args.issue_labels.split(",") if label.strip()]
         context_note = "(offline mode)"
+
+    # Gate: this check only applies when the linked issue carries `agent-safe`.
+    # The label lives on the issue per CLAUDE.md taxonomy; the workflow runs
+    # unconditionally on every PR and lets us decide here so we can resolve
+    # the linked-issue's labels rather than the PR's.
+    if "agent-safe" not in issue_labels:
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "level": "PASS",
+                        "summary": "PR's linked issue is not labelled `agent-safe` — scope check skipped.",
+                        "out_of_scope": [],
+                        "allowed_globs": [],
+                        "source": "skip",
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            print(f"agent-safe scope check {context_note}")
+            print("  verdict: PASS (skipped)")
+            print(
+                "  reason : linked issue is not labelled `agent-safe` — scope check does not apply."
+            )
+        return 0
 
     verdict = evaluate(issue_body, issue_labels, diff_files)
 

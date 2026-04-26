@@ -105,6 +105,29 @@ def test_parse_files_to_touch_bare_path_without_backticks():
     assert "CLAUDE.md" in parsed
 
 
+def test_parse_files_to_touch_bare_paths_multiple_per_bullet():
+    """A single bullet containing multiple unquoted paths must yield each
+    path separately, not one mashed-together string. Real-world example:
+        - Edit: src/a.py and src/b.py
+    Without tokenisation this would parse as one phantom path that never
+    matches any diff entry, causing false FAILs."""
+    body = """## Files to touch
+
+- Edit: src/starter/foo.py and src/starter/bar.py
+- New: docs/a.md, docs/b.md
+
+## Next
+"""
+    parsed = scope_check.parse_files_to_touch(body)
+    assert parsed is not None
+    assert "src/starter/foo.py" in parsed
+    assert "src/starter/bar.py" in parsed
+    assert "docs/a.md" in parsed
+    assert "docs/b.md" in parsed
+    # No mashed-together token should sneak through.
+    assert all(" " not in p for p in parsed)
+
+
 def test_parse_files_to_touch_skips_descriptive_bullets():
     body = """## Files to touch
 
@@ -131,24 +154,51 @@ def test_parse_files_to_touch_empty_section():
 # ── Area-label fallback tests ─────────────────────────────────────────────────
 
 
-def test_area_label_paths_bounded_area_ui():
-    globs = scope_check.area_label_paths(["area:ui", "priority:p2", "size:s"])
+def test_area_label_paths_bounded_area_ui_bare_label():
+    """Repo uses bare area labels (no `area:` prefix) per CLAUDE.md.
+    Real-world labels look like `ui`, `api`, `auth` — not `area:ui`."""
+    globs = scope_check.area_label_paths(["ui", "priority:p2", "size:s"])
+    assert globs is not None
+    assert any(g.startswith("ui/") for g in globs)
+
+
+def test_area_label_paths_bounded_area_prefixed_form_also_accepted():
+    """Forward-compatibility: `area:ui` form works too."""
+    globs = scope_check.area_label_paths(["area:ui", "priority:p2"])
     assert globs is not None
     assert any(g.startswith("ui/") for g in globs)
 
 
 def test_area_label_paths_meta_area_returns_none():
-    """Case (b) — area:dx is a meta-area, no clean path map → None → WARN."""
-    assert scope_check.area_label_paths(["area:dx", "priority:p2"]) is None
+    """Case (b) — `dx` is a meta-area, no clean path map → None → WARN."""
+    assert scope_check.area_label_paths(["dx", "priority:p2"]) is None
 
 
 def test_area_label_paths_no_area_labels_returns_none():
     assert scope_check.area_label_paths(["priority:p1", "size:m"]) is None
 
 
+def test_area_label_paths_filters_out_non_area_labels():
+    """Standard non-area labels (status, type, agent-safe) are filtered out
+    before the area check runs. Real issues carry many such labels."""
+    globs = scope_check.area_label_paths(
+        [
+            "ui",
+            "agent-safe",
+            "enhancement",
+            "documentation",
+            "status:ready",
+            "priority:p2",
+            "size:s",
+        ]
+    )
+    assert globs is not None
+    assert any(g.startswith("ui/") for g in globs)
+
+
 def test_area_label_paths_multiple_bounded_areas_combine():
     """Case (e) — multiple area labels combine into a union of globs."""
-    globs = scope_check.area_label_paths(["area:api", "area:auth"])
+    globs = scope_check.area_label_paths(["api", "auth"])
     assert globs is not None
     assert any(g.startswith("src/starter/api/") for g in globs)
     assert any(g.startswith("src/starter/auth/") for g in globs)
@@ -157,12 +207,13 @@ def test_area_label_paths_multiple_bounded_areas_combine():
 def test_area_label_paths_meta_in_mix_disables_fallback():
     """If any area label is a meta-area, fall through to WARN — partial
     bounded-area coverage isn't reliable enough."""
-    assert scope_check.area_label_paths(["area:ui", "area:dx"]) is None
+    assert scope_check.area_label_paths(["ui", "dx"]) is None
 
 
-def test_area_label_paths_unknown_area_disables_fallback():
-    """Unknown area labels are treated conservatively → None → WARN."""
-    assert scope_check.area_label_paths(["area:fictional"]) is None
+def test_area_label_paths_unrecognised_label_is_ignored():
+    """A label that's neither in BOUNDED_AREA_GLOBS nor META_AREAS (e.g.
+    a custom workflow label) is not treated as an area label at all."""
+    assert scope_check.area_label_paths(["custom-label", "priority:p2"]) is None
 
 
 # ── check_scope tests ─────────────────────────────────────────────────────────
@@ -213,9 +264,9 @@ def test_check_scope_exact_path_match():
 
 
 def test_case_a_no_files_to_touch_area_ui_diff_in_ui_passes():
-    """(a) No Files-to-touch, area:ui, diff in ui/src/ — PASS."""
+    """(a) No Files-to-touch, area `ui`, diff in ui/src/ — PASS."""
     body = "## Context\n\nNothing.\n"
-    labels = ["area:ui", "agent-safe"]
+    labels = ["ui", "agent-safe"]  # bare label form, as used in the repo
     diff = ["ui/src/components/Foo.jsx"]
     v = scope_check.evaluate(body, labels, diff)
     assert v.level == "PASS"
@@ -223,9 +274,9 @@ def test_case_a_no_files_to_touch_area_ui_diff_in_ui_passes():
 
 
 def test_case_b_no_files_to_touch_area_dx_warns():
-    """(b) No Files-to-touch, area:dx (meta) — WARN."""
+    """(b) No Files-to-touch, area `dx` (meta) — WARN."""
     body = "## Context\n\nNothing.\n"
-    labels = ["area:dx", "agent-safe"]
+    labels = ["dx", "agent-safe"]  # bare label form
     diff = ["scripts/foo.py"]
     v = scope_check.evaluate(body, labels, diff)
     assert v.level == "WARN"
@@ -256,7 +307,7 @@ def test_case_d_files_to_touch_strays_fails_pr76_scenario():
 
 ## Acceptance criteria
 """
-    labels = ["agent-safe", "area:ui"]
+    labels = ["agent-safe", "ui"]
     diff = [
         ".claude/skills/react-component/SKILL.md",
         ".claude/skills/react-component/example.jsx",
@@ -274,7 +325,7 @@ def test_case_d_files_to_touch_strays_fails_pr76_scenario():
 def test_case_e_multiple_area_labels_mapping_precedence():
     """(e) Multiple area labels — globs union, files matching either pass."""
     body = "## Context\n\nNo files-to-touch section.\n"
-    labels = ["area:api", "area:auth", "agent-safe"]
+    labels = ["api", "auth", "agent-safe"]
     diff = [
         "src/starter/api/foo.py",
         "src/starter/auth/oauth.py",
@@ -286,7 +337,7 @@ def test_case_e_multiple_area_labels_mapping_precedence():
 
 def test_case_e_multiple_areas_with_out_of_scope_file_fails():
     body = "## Context\n\nNo files-to-touch section.\n"
-    labels = ["area:api", "area:auth", "agent-safe"]
+    labels = ["api", "auth", "agent-safe"]
     diff = [
         "src/starter/api/foo.py",
         "ui/src/components/Foo.jsx",  # out of scope for api+auth

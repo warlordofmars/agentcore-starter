@@ -201,25 +201,14 @@ Note: this confirms a test file *exists* — CI enforces the 100% coverage numbe
 
 ### 12. agent-safe scope boundary
 
-Only runs when the linked issue is labelled `agent-safe`. Per issue #77, an
-`agent-safe` PR's diff must stay inside the issue's stated scope —
-ride-along edits to out-of-scope files (CLAUDE.md, other agent files,
-unrelated code) must not auto-merge. This is the friendly first-line gate;
-`.github/workflows/agent-safe-scope.yml` is the unbypassable CI backstop
-that runs the same check.
+Per issue #77, an `agent-safe` PR's diff must stay inside the linked
+issue's stated scope — ride-along edits to out-of-scope files (CLAUDE.md,
+other agent files, unrelated code) must not auto-merge. This is the
+friendly first-line gate; `.github/workflows/agent-safe-scope.yml` is the
+unbypassable CI backstop that runs the exact same script.
 
-Resolve the linked issue from the PR body's `Closes #N` line, then check
-whether it carries the `agent-safe` label:
-
-```bash
-gh pr view <PR> --json body --jq .body | grep -oiE '(closes|fixes|resolves)[[:space:]]+#[0-9]+'
-gh issue view <ISSUE> --json labels --jq '[.labels[].name]'
-```
-
-If `agent-safe` is **not** on the issue, skip this check (mark `PASS`
-trivially — a non-agent-safe PR is going to a human reviewer anyway).
-
-If `agent-safe` **is** on the issue, run the scope check:
+Run the scope check on every PR — the script handles the agent-safe gate
+itself by resolving the linked issue's labels:
 
 ```bash
 uv run python scripts/check_agent_safe_scope.py --pr <PR>
@@ -227,6 +216,8 @@ uv run python scripts/check_agent_safe_scope.py --pr <PR>
 
 Map the script's verdict directly:
 
+- exit 0 with `verdict: PASS (skipped)` → `PASS` (linked issue is not
+  `agent-safe`; check does not apply)
 - exit 0 with `verdict: PASS` → `PASS`
 - exit 0 with `verdict: WARN` → `WARN` (issue lacks "Files to touch" and
   has no clean area-label mapping; cannot verify mechanically)
