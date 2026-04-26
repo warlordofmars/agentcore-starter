@@ -111,8 +111,6 @@ Fix any failures before continuing.
 
 ---
 
----
-
 ## Phase 1.5 — branch model + protections (run after fork, before any code work)
 
 The template expects a dual-branch model (`development` is the GitHub default; `main` is release-only) with seven required CI status checks on both branches and `allow_auto_merge=true` so `gh pr merge --auto --squash` works as documented in CLAUDE.md. A fresh fork ships without any of this — apply it before opening any PR. The expected state is checked in at `infra/branch-protection.expected.json`.
@@ -126,9 +124,14 @@ The template expects a dual-branch model (`development` is the GitHub default; `
 REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 
 # Step 1 — repo merge settings (MUST run first)
+# All six fields tracked by the snapshot are set explicitly so the post-PATCH
+# state matches `infra/branch-protection.expected.json` regardless of the
+# fork's defaults — the verification step below will diff them all.
 gh api -X PATCH "/repos/$REPO" --input - <<'EOF'
 {
   "default_branch": "development",
+  "allow_squash_merge": true,
+  "allow_merge_commit": true,
   "allow_rebase_merge": false,
   "delete_branch_on_merge": true,
   "allow_auto_merge": true
@@ -165,12 +168,14 @@ done
 
 ### Verify live state matches the checked-in snapshot
 
-The snapshot at `infra/branch-protection.expected.json` is the source of truth. Compare the live API responses field-by-field, ignoring the URL fields (`url`, `contexts_url`, `required_status_checks.url`, `required_signatures.url`) which embed the upstream `warlordofmars/agentcore-starter` slug and are not portable across forks.
+The snapshot at `infra/branch-protection.expected.json` is the source of truth. It is a verbatim capture of the GitHub API response shape, so fields that the API omits when null (notably `required_pull_request_reviews` and `restrictions` when neither is configured) are absent from the snapshot — `jq .field` returns `null` for absent fields, which is the comparison contract: an absent snapshot field equals a `null` live field.
+
+The diff filter below covers every field set by Phase 1.5's PATCH and PUT plus every protection sub-setting that the snapshot records. URL fields (`url`, `contexts_url`, `required_status_checks.url`, `required_signatures.url`) embed the upstream `warlordofmars/agentcore-starter` slug and are excluded — they are not portable across forks.
 
 ```bash
 EXPECTED=infra/branch-protection.expected.json
 
-# Compare repo settings (full block)
+# Compare repo settings (full block — all six snapshot-tracked fields)
 LIVE_REPO=$(gh api "/repos/$REPO" \
   --jq '{allow_auto_merge, allow_merge_commit, allow_rebase_merge, allow_squash_merge, default_branch, delete_branch_on_merge}')
 EXPECTED_REPO=$(jq -c .repo_settings "$EXPECTED")
@@ -178,15 +183,26 @@ diff <(echo "$LIVE_REPO" | jq -S .) <(echo "$EXPECTED_REPO" | jq -S .) \
   && echo "repo_settings: OK" \
   || { echo "HALT — repo_settings drift; resolve before continuing"; exit 1; }
 
-# Compare protection (only portable fields — URL fields excluded)
+# Compare protection — every snapshot-tracked field plus everything Phase 1.5
+# explicitly configures, with URL fields excluded. `null`-returning sub-paths
+# (e.g., absent `required_pull_request_reviews`) compare equal between snapshot
+# and live, which is the intended contract.
 PROTECTION_FIELDS='{
-  contexts: .required_status_checks.contexts,
-  strict: .required_status_checks.strict,
+  required_status_checks: {
+    strict: .required_status_checks.strict,
+    contexts: .required_status_checks.contexts
+  },
+  required_signatures: .required_signatures.enabled,
   enforce_admins: .enforce_admins.enabled,
+  required_pull_request_reviews: .required_pull_request_reviews,
+  restrictions: .restrictions,
   required_linear_history: .required_linear_history.enabled,
   allow_force_pushes: .allow_force_pushes.enabled,
   allow_deletions: .allow_deletions.enabled,
-  required_conversation_resolution: .required_conversation_resolution.enabled
+  block_creations: .block_creations.enabled,
+  required_conversation_resolution: .required_conversation_resolution.enabled,
+  lock_branch: .lock_branch.enabled,
+  allow_fork_syncing: .allow_fork_syncing.enabled
 }'
 for branch in main development; do
   LIVE=$(gh api "/repos/$REPO/branches/$branch/protection" --jq "$PROTECTION_FIELDS")
