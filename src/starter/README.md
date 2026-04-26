@@ -14,7 +14,7 @@ src/starter/
 ├── logging_config.py    # Structured JSON logging setup
 ├── metrics.py           # CloudWatch EMF metrics helpers
 ├── auth/
-│   ├── oauth.py         # OAuth 2.1 discovery endpoints (RFC 8414 + RFC 9728); authorize/token/revoke not yet implemented
+│   ├── oauth.py         # OAuth 2.1 discovery endpoints (RFC 8414 + RFC 9728); authorize/token/revoke/register not yet implemented
 │   ├── tokens.py        # JWT issuance and validation (OAuth 2.1 + management sessions)
 │   ├── google.py        # Google OAuth integration (management UI login)
 │   └── mgmt_auth.py     # Management UI auth routes (/auth/login, /auth/callback)
