@@ -45,14 +45,17 @@ jobs:
 
           # `gh pr list --search` uses GitHub's PR search index — same source
           # backlinks use, cheaper than walking the issue Timeline API.
-          # `<N> in:body is:open is:pr` returns every open PR whose body
-          # mentions the bare issue number; the closing-keyword regex below
-          # then filters to PRs that actually link the issue (not just
-          # mention it in passing).
+          # `<N> in:body is:open is:pr` returns candidate open PRs whose
+          # body mentions the bare issue number; the closing-keyword regex
+          # below then filters to PRs that actually link the issue (not
+          # just mention it in passing). `--limit 1000` is a generous
+          # ceiling well above this repo's normal PR backlog so the regex
+          # filter sees effectively all candidates rather than silently
+          # truncating after the default page size.
           CANDIDATES=$(gh pr list \
             --search "$ISSUE_NUMBER in:body is:open is:pr" \
             --json number,headRefName,body \
-            --limit 50)
+            --limit 1000)
 
           # No-match is a no-op (common case — most issue label edits don't
           # have a live PR attached). Exit cleanly so the workflow run
