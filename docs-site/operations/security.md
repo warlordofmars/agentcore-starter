@@ -13,10 +13,13 @@ prod   → /agentcore-starter/<name>
 others → /agentcore-starter/<env_name>/<name>
 ```
 
-The CDK stack in `infra/stacks/starter_stack.py` provisions every
-parameter with a `CHANGE_ME_ON_FIRST_DEPLOY` placeholder and applies
-`RemovalPolicy.RETAIN` so a stack delete never destroys the live secret
-material.
+The CDK stack in `infra/stacks/starter_stack.py` provisions most
+secret parameters with a `CHANGE_ME_ON_FIRST_DEPLOY` placeholder and
+applies `RemovalPolicy.RETAIN` so a stack delete never destroys the
+live secret material. The `AllowedEmails` parameter is the exception:
+it ships with `"[]"` (deny-all) by default so a freshly-deployed
+stack never grants management access to anyone until the deployer
+explicitly populates the list.
 
 > **Fail-closed startup validation is tracked under
 > [issue #16](https://github.com/warlordofmars/agentcore-starter/issues/16).**
@@ -56,12 +59,18 @@ are true:
    `CHANGE_ME_ON_FIRST_DEPLOY`.
 3. The incoming `x-origin-verify` header matches that value.
 
-Outside prod the env var is intentionally unset, so local dev and the
-non-prod Function URL accept requests without the header. In prod, if
-the SSM parameter still holds the placeholder, the middleware silently
-allows every request through. **Rotate the secret immediately after
-the first prod deploy** (procedure below). Issue #16 will turn this
-silent-pass into a startup error.
+The CDK stack sets `STARTER_ORIGIN_VERIFY_PARAM` in **every**
+environment, but CloudFront only injects the `X-Origin-Verify`
+header on the prod distribution. In non-prod environments the
+middleware is effectively skipping enforcement only because the SSM
+parameter still holds the `CHANGE_ME_ON_FIRST_DEPLOY` placeholder
+(condition 2 above) — **do not rotate the non-prod parameter away
+from the placeholder unless you also wire CloudFront header injection
+for that environment**, or non-prod traffic will start being rejected.
+In prod, if the SSM parameter still holds the placeholder, the
+middleware silently allows every request through. **Rotate the
+secret immediately after the first prod deploy** (procedure below).
+Issue #16 will turn this silent-pass into a startup error.
 
 The current resolver in `src/starter/auth/tokens.py`
 (`_origin_verify_secret`) also returns `None` on any SSM exception
@@ -93,9 +102,14 @@ read.
 
 ## JWT signing secret
 
-Every JWT issued by the application — both OAuth 2.1 access tokens
-and management session tokens — is signed with HS256 using a single
-shared secret stored in SSM.
+Every JWT issued by the application — today, the management session
+tokens; once you add OAuth 2.1 token issuance, the bearer access
+tokens too — is signed with HS256 using a single shared secret
+stored in SSM. The template ships only the OAuth 2.1 discovery
+documents (`/.well-known/oauth-authorization-server` and
+`/.well-known/oauth-protected-resource`); the
+`/oauth/authorize` and `/oauth/token` endpoints are not implemented
+yet.
 
 | Field | Value |
 | --- | --- |
@@ -112,11 +126,14 @@ shared secret stored in SSM.
 
 1. `STARTER_JWT_SECRET` env var (used by tests and local dev).
 2. SSM `STARTER_JWT_SECRET_PARAM` (Lambda runtime).
-3. A random 32-byte fallback generated per process — **single-process
-   local dev only**; tokens issued by one Lambda instance will not
-   validate on another.
+3. A random 32-byte fallback generated per process — intended as a
+   **local-dev escape hatch**, but `_jwt_secret()` also takes this
+   branch on **any** SSM exception (missing parameter, IAM denial,
+   network error). In Lambda this means tokens issued by one cold
+   start will not validate on the next, silently invalidating every
+   client session.
 
-The fallback path is what makes the placeholder dangerous in prod: if
+The fallback is what makes a half-configured deploy dangerous: if
 SSM is unreachable or the parameter is missing, every cold start
 issues a new secret and previously-issued tokens silently stop
 validating. Issue #16 will replace the fallback with a hard startup
