@@ -1,6 +1,6 @@
 ---
 name: cdk-construct
-description: Conventions for authoring CDK constructs in the AgentCore Starter stack — placeholder stub until the partition work in #48 settles props, public-attribute, and CDK Nag suppression patterns.
+description: "Conventions for authoring CDK constructs in the AgentCore Starter stack — placeholder stub until the partition work in #48 settles props, public-attribute, and CDK Nag suppression patterns."
 status: stub
 triggers:
   paths:
@@ -9,7 +9,6 @@ triggers:
   areas:
     - "infra"
 ---
-
 > STUB — full skill blocked by #48 (infra partition); follow-up #68.
 
 # cdk-construct
