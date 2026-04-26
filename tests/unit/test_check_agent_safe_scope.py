@@ -480,8 +480,9 @@ def test_fix1_version_like_tokens_are_not_treated_as_paths():
     """Issue #90 Fix 1 hardening (Copilot iter 2): tokens like `v1.0`,
     `v1.2`, or `2.10` would pass the path-safe character filter (only word
     chars + dot) AND match `\\.\\w+$` because `\\w` includes digits. The
-    extension regex is tightened to require the first extension character
-    to be a letter (`\\.[A-Za-z]\\w*$`), rejecting version-like tokens.
+    extension regex is tightened to `\\.[A-Za-z]\\w+$` — the first char
+    after the dot must be a letter and the extension total length must be
+    >=2 chars — rejecting version-like tokens.
 
     Real paths (`tasks.py`, `pyproject.toml`, `package-lock.json`) still
     pass — every realistic file extension starts with a letter."""
