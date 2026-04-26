@@ -1,7 +1,7 @@
 name: agent-safe scope check (issue retrigger)
 
 # Re-evaluate the agent-safe scope check on open PRs when their linked
-# issue's labels or body change (issue #88).
+# issue's labels change (issue #88).
 #
 # The primary `agent-safe-scope.yml` workflow only fires on `pull_request`
 # events, so a label edit on the linked **issue** (e.g. stripping `api`
@@ -19,7 +19,11 @@ name: agent-safe scope check (issue retrigger)
 
 on:
   issues:
-    types: [labeled, unlabeled, edited]
+    # Per #88's scoped AC, retrigger only on label changes. The `edited`
+    # trigger (body/title edits) is called out as a separate follow-up in
+    # #88's "Out of scope" section — file a new issue if body-driven
+    # retrigger is needed.
+    types: [labeled, unlabeled]
 
 permissions:
   issues: read
@@ -101,10 +105,19 @@ jobs:
             HEAD_REF=$(echo "$pr" | jq -r '.headRefName')
             BODY=$(echo "$pr" | jq -r '.body')
 
+            # Normalise CR/LF to spaces so `Closes:\n#88`-style references
+            # (keyword and number on different lines) are treated the same
+            # as on a single line. `grep` is line-mode by default and
+            # cannot otherwise match across newlines, but the scope-check
+            # script (`scripts/check_agent_safe_scope.py`) uses Python
+            # `re` with `\s+` which does — keep the two link-detection
+            # paths consistent.
+            NORMALISED_BODY=$(printf '%s' "$BODY" | tr '\r\n' '  ')
+
             # `printf '%s'` instead of `echo` so PR bodies starting with
             # `-n` / `-e` (or containing escape sequences echo would
             # interpret) are passed verbatim to grep.
-            if printf '%s' "$BODY" | grep -qiE "$REGEX"; then
+            if printf '%s' "$NORMALISED_BODY" | grep -qiE "$REGEX"; then
               echo "PR #$PR_NUM (head: $HEAD_REF) links issue #$ISSUE_NUMBER — re-dispatching scope check."
               # Re-dispatch against the PR's head ref so the resulting check
               # status updates the right commit. Cross-workflow dispatch
