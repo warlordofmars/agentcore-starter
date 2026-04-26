@@ -139,7 +139,14 @@ jobs:
                 -f pr_number="$PR_NUM" 2>&1); then
                 echo "PR #$PR_NUM scope check re-dispatched successfully."
               else
-                echo "::warning::PR #$PR_NUM (head: $HEAD_REF) scope check dispatch failed; skipping. ${DISPATCH_OUTPUT}"
+                # Keep the workflow-command annotation single-line and
+                # free of untrusted content. `gh` error output can contain
+                # newlines or `::` sequences that would break the
+                # annotation or enable workflow-command injection — emit
+                # the dispatch output on a separate plain-echo line.
+                echo "::warning::PR #$PR_NUM (head: $HEAD_REF) scope check dispatch failed; skipping."
+                echo "Dispatch output:"
+                printf '%s\n' "$DISPATCH_OUTPUT"
               fi
             else
               echo "PR #$PR_NUM mentions $ISSUE_NUMBER but no closing-keyword link — skipping."
