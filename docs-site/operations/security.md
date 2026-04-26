@@ -308,7 +308,10 @@ General playbook for any SSM-backed secret:
    value.
 5. Verify the new value is in effect: hit the API with a fresh token,
    confirm 200; for origin-verify, confirm a direct Function URL
-   request without the header is now rejected once #16 lands.
+   request without the header is rejected. The basic header check
+   already enforces today once the secret is rotated away from the
+   placeholder; #16 only changes the placeholder/SSM-error
+   fail-closed behaviour.
 
 ### Future fail-closed validation (#16)
 
