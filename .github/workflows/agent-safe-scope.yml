@@ -31,11 +31,13 @@ name: agent-safe scope check
 on:
   pull_request:
     types: [opened, synchronize, labeled, unlabeled, edited]
-  # Issue label / body changes can invalidate a previously-passing scope
+  # Issue label changes can invalidate a previously-passing scope
   # evaluation without any new commits hitting the PR's head branch
   # (issue #88). The companion workflow `agent-safe-scope-issue-retrigger.yml`
-  # discovers PRs linked to a changed issue and re-dispatches this workflow
-  # against each PR's head ref so branch protection sees a fresh result.
+  # discovers PRs linked to an issue whose labels changed and re-dispatches
+  # this workflow against each PR's head ref so branch protection sees a
+  # fresh result. (Issue body/title edits are out of scope for #88; file a
+  # follow-up if body-driven retrigger is needed.)
   workflow_dispatch:
     inputs:
       pr_number:

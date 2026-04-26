@@ -140,13 +140,16 @@ jobs:
                 echo "PR #$PR_NUM scope check re-dispatched successfully."
               else
                 # Keep the workflow-command annotation single-line and
-                # free of untrusted content. `gh` error output can contain
-                # newlines or `::` sequences that would break the
-                # annotation or enable workflow-command injection — emit
-                # the dispatch output on a separate plain-echo line.
+                # free of untrusted content. GitHub Actions parses `::`
+                # workflow commands from any log line, not just
+                # annotation lines, so embedding raw `gh` error output
+                # (which may contain `::` sequences or newlines) would
+                # both break the annotation and enable workflow-command
+                # injection. Indent each output line by two spaces so any
+                # leading `::` cannot be parsed as a workflow command.
                 echo "::warning::PR #$PR_NUM (head: $HEAD_REF) scope check dispatch failed; skipping."
-                echo "Dispatch output:"
-                printf '%s\n' "$DISPATCH_OUTPUT"
+                echo "Dispatch output (sanitised — leading whitespace prevents workflow-command parsing):"
+                printf '%s\n' "$DISPATCH_OUTPUT" | sed 's/\r$//; s/^/  /'
               fi
             else
               echo "PR #$PR_NUM mentions $ISSUE_NUMBER but no closing-keyword link — skipping."
