@@ -63,7 +63,7 @@ BOUNDED_AREA_GLOBS: dict[str, list[str]] = {
     "mcp": ["src/starter/mcp/**", "tests/unit/test_mcp_*.py"],
     "infra": ["infra/**"],
     "ui": ["ui/**"],
-    "docs": ["docs/**", "docs-site/**", "README.md", "CHANGELOG.md"],
+    "documentation": ["docs/**", "docs-site/**", "README.md", "CHANGELOG.md"],
     "ci": [".github/workflows/**", "scripts/**"],
     "sdk": ["sdk/**"],
 }
@@ -284,13 +284,15 @@ def evaluate(
 
     if files_to_touch is not None:
         if not files_to_touch:
-            # Heading present but empty bullet list — treat as WARN; a section
-            # with no entries probably means the author forgot to fill it in.
+            # Heading present but empty bullet list — fail closed. A section
+            # with no entries can't gate a diff; falling back to WARN would
+            # let any diff pass scope-check trivially by leaving the section
+            # blank.
             return Verdict(
-                level="WARN",
+                level="FAIL",
                 summary=(
-                    'Issue body has "Files to touch" heading but no parseable '
-                    "path entries. Cannot verify scope."
+                    '"Files to touch" section present but empty or malformed; '
+                    "refusing to apply soft fallback."
                 ),
                 source="files-to-touch",
             )

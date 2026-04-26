@@ -162,6 +162,14 @@ def test_area_label_paths_bounded_area_ui_bare_label():
     assert any(g.startswith("ui/") for g in globs)
 
 
+def test_area_label_paths_bounded_area_documentation():
+    """The live area label is `documentation` (not `docs` — CLAUDE.md
+    taxonomy is forward-looking; the live label set is the ground truth)."""
+    globs = scope_check.area_label_paths(["documentation", "priority:p2"])
+    assert globs is not None
+    assert any(g.startswith("docs/") or g.startswith("docs-site/") for g in globs)
+
+
 def test_area_label_paths_bounded_area_prefixed_form_also_accepted():
     """Forward-compatibility: `area:ui` form works too."""
     globs = scope_check.area_label_paths(["area:ui", "priority:p2"])
@@ -381,10 +389,12 @@ def test_evaluate_warns_when_no_scope_info_anywhere():
     assert v.source == "none"
 
 
-def test_evaluate_warns_when_files_to_touch_section_is_empty():
+def test_evaluate_fails_when_files_to_touch_section_is_empty():
+    """Empty Files-to-touch section fails closed — falling back to WARN
+    would let any diff pass by leaving the section blank."""
     body = "## Files to touch\n\n## Next\n"
     v = scope_check.evaluate(body, ["agent-safe"], ["foo.py"])
-    assert v.level == "WARN"
+    assert v.level == "FAIL"
     assert v.source == "files-to-touch"
 
 
