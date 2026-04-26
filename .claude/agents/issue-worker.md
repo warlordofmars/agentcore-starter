@@ -168,7 +168,9 @@ push.
 
 ```bash
 git fetch origin
-# Run the W4 shadow-branch fast-forward loop here (see ## Push discipline).
+# Run the W4 shadow-branch fast-forward loop here (see ## Push discipline),
+# then run the W7 ancestry check immediately after — W4 and W7 are a coupled
+# pair; W7 catches divergence W4 couldn't fix on worktree-locked refs.
 git rebase origin/development
 git log --oneline origin/development..HEAD   # must show ONLY your commits
 git push -u origin <branch>:<branch>
@@ -180,7 +182,9 @@ pin to it:
 
 ```bash
 git fetch origin
-# Run the W4 shadow-branch fast-forward loop here (see ## Push discipline).
+# Run the W4 shadow-branch fast-forward loop here (see ## Push discipline),
+# then run the W7 ancestry check immediately after — W4 and W7 are a coupled
+# pair; W7 catches divergence W4 couldn't fix on worktree-locked refs.
 PRE_REBASE_SHA=$(git rev-parse --verify --quiet origin/<branch>)   # capture BEFORE rebase
 # PRE_REBASE_SHA must be non-empty here. If empty, the lease form below
 # becomes ambiguous (`--force-with-lease=<branch>:` with empty SHA is
@@ -217,8 +221,9 @@ If any check fails:
 1. Read the failure: `gh run view <run-id> --log-failed`
 2. Fix on the same branch
 3. Push using the canonical procedure in §6 — re-run the W1–W7
-   pre-push checks from `## Push discipline` (fetch, shadow-branch
-   fast-forward, `push.default` check), then push with the explicit
+   pre-push checks from `## Push discipline` (fetch, W4 shadow-branch
+   fast-forward, **W7 ancestry check immediately after W4**,
+   `push.default` check), then push with the explicit
    refspec form. If the fix is a forward-only update (new commits
    appended, no rebase), use `git push origin <branch>:<branch>`.
    If the fix required a fresh rebase, **re-capture

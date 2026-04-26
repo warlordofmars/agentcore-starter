@@ -291,7 +291,9 @@ All rights reserved.`).
 
    ```bash
    git fetch origin
-   # then: W4 shadow-branch fast-forward (see issue-worker.md §"Push discipline")
+   # then: W4 shadow-branch fast-forward, immediately followed by W7
+   # ancestry check (W4 and W7 are a coupled pair — see
+   # issue-worker.md §"Push discipline" for the mechanical procedure)
    git rebase origin/development
    git log --oneline origin/development..HEAD  # must show ONLY your commits
    ```
