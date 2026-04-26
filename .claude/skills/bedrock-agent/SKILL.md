@@ -35,14 +35,16 @@ Runtime-shaped scaffolding ahead of the integration.
 These three points are settled by ADR-0004 and will carry forward
 into the full skill:
 
-- **Sidecar architecture is locked** (ADR-0004 §Decision 1 /
-  Option A). Runtime ships as a separate container; the FastAPI
+- **Sidecar architecture is locked** (ADR-0004 §"Decision A —
+  Runtime vs inline-agent" / migration Option A). Runtime ships
+  as a separate container; the FastAPI
   Lambda stays in the request path and calls
   `bedrock-agentcore.invoke_agent_runtime` from new
   `/api/chat/*` routes. Inline-agent on `/api/agents/*` is
   preserved for the template's pedagogical role (ADR-0003 remains
   in force).
-- **Memory and DynamoDB coexist** (ADR-0004 §Decision 2). Memory
+- **Memory and DynamoDB coexist** (ADR-0004 §"Decision B —
+  Memory vs DynamoDB"). Memory
   is not a transcript store — it handles LLM-extracted semantic
   recall (facts, summaries, preferences) and is invoked as a
   tool via `RetrieveMemoryRecords`. The raw turn-by-turn
@@ -77,7 +79,7 @@ integration work (#70) and is captured under §Gaps below.
 ### Inline-agent vs Runtime decision tree
 
 - **What's missing:** The concrete decision tree for when an agent endpoint should target inline-agent versus Runtime — including the streaming-protocol differences (Bedrock event stream `for event in response["completion"]:` vs HTTP/SSE `for line in response["response"].iter_lines():` per ADR-0004 §Findings #2) and the IAM-scope differences (`bedrock:InvokeInlineAgent` per ADR-0003 vs `bedrock-agentcore:InvokeAgentRuntime` per ADR-0004 §Findings #4).
-- **Why deferred:** ADR-0004 §Decision 1 assigns inline-agent to the template and Runtime to the chat-app fork, but the per-endpoint decision tree only becomes observable once both paths coexist in a realised fork.
+- **Why deferred:** ADR-0004 §"Decision A — Runtime vs inline-agent" assigns inline-agent to the template and Runtime to the chat-app fork, but the per-endpoint decision tree only becomes observable once both paths coexist in a realised fork.
 - **Unblocks when:** #70 ships both code paths in the chat-app fork; #71 codifies the decision tree against the realised integration.
 
 ### Memory strategy weighting and namespace template strings
