@@ -49,7 +49,9 @@ into the full skill:
   transcript and the immutable audit log stay DynamoDB-backed.
 - **Memory namespace tenancy is encoded inside `actorId`**
   (ADR-0004 §Findings #6, §Consequences). Namespace templates
-  accept only `{actorId}`, `{sessionId}`, `{strategyId}` —
+  accept only `{actorId}`, `{sessionId}`, and
+  `{strategyId}` / `{memoryStrategyId}` (per ADR-0004
+  §Findings #3 — the two strategy-id forms are aliases) —
   custom variables are not supported. Workspace tenancy
   therefore lives inside `actorId` as
   `f"{workspace_id}:{user_id}"`, generalising the existing
@@ -81,7 +83,7 @@ integration work (#70) and is captured under §Gaps below.
 ### Memory strategy weighting and namespace template strings
 
 - **What's missing:** Which Memory strategies (`semantic`, `summary`, `userPreference`, `episodic`, `custom`) the chat-app fork uses by default, the per-strategy weighting, and the concrete namespace template strings (e.g. `workspaces/{actorId}/facts`, `workspaces/{actorId}/summaries/{sessionId}`).
-- **Why deferred:** Strategy choice is product-level (which recall behaviours the chat experience needs) and must be decided during chat-app fork planning; ADR-0004 documents the constraints (6 strategies per Memory, only `{actorId}` / `{sessionId}` / `{strategyId}` template variables) but does not pick weights.
+- **Why deferred:** Strategy choice is product-level (which recall behaviours the chat experience needs) and must be decided during chat-app fork planning; ADR-0004 documents the constraints (6 strategies per Memory, only `{actorId}` / `{sessionId}` / `{strategyId}` (a.k.a. `{memoryStrategyId}`) template variables) but does not pick weights.
 - **Unblocks when:** #70's design pass picks the default strategy set and namespace templates for the fork; #71 codifies them.
 
 ### `runtimeUserId` vs JWT `sub` convention
