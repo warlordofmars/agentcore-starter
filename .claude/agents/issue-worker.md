@@ -387,18 +387,22 @@ W4 is paired with W7: W4 absorbs healthy lag by fast-forwarding the shadow refs 
 git fetch origin
 # Fast-forward each shadow branch that exists locally.
 # Three cases:
-#   - branch isn't checked out anywhere → `fetch origin <b>:<b>` (silent fast-forward)
+#   - branch isn't checked out anywhere → `fetch origin <b>:<b>` runs;
+#     `|| true` tolerates non-fast-forward failure (could be divergence,
+#     could be transient — W7 disambiguates).
 #   - branch IS the currently-checked-out HEAD → `merge --ff-only origin/<b>`
-#     (since `fetch <b>:<b>` refuses to update HEAD)
-#   - branch is checked out in another linked worktree → fetch and merge both
-#     refuse to update; that's NOT divergence, just worktree-locked. The
-#     individual command failure is tolerated here; W7's ancestry check
-#     below is what actually validates the ref. The `|| true` is therefore
-#     a deliberate handoff to W7, not a swallowed error: if origin/<b>
-#     contains local <b>, the lag is healthy and the worktree owner can
-#     fast-forward at their leisure; only true divergence (origin/<b>
-#     is NOT a descendant of <b>) is the stale-clone signal, and W7
-#     halts on that case.
+#     runs (since `fetch <b>:<b>` refuses to update HEAD); `|| true`
+#     tolerates non-fast-forward failure for the same W7-handoff reason.
+#   - branch is checked out in another linked worktree → no command runs
+#     (the `:` no-op). Detected up-front via `git worktree list` because
+#     fetch/merge would refuse anyway; skipping the call avoids a
+#     misleading "non-fast-forward" error for what is actually a
+#     worktree-lock condition. W7's ancestry check is what validates
+#     the ref in this case.
+# In all three cases, W7 (next) is the actual divergence detector:
+# if origin/<b> contains local <b>, the lag is healthy and W7 passes;
+# only true divergence (origin/<b> is NOT a descendant of <b>) is the
+# stale-clone signal, and W7 halts on that case.
 CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 for shadow in development main; do
   git show-ref --verify --quiet "refs/heads/$shadow" || continue
