@@ -476,6 +476,32 @@ def test_fix1_prose_fragments_with_dots_are_not_treated_as_paths():
     assert not any(t.startswith("v1.") for t in parsed)
 
 
+def test_fix1_version_like_tokens_are_not_treated_as_paths():
+    """Issue #90 Fix 1 hardening (Copilot iter 2): tokens like `v1.0`,
+    `v1.2`, or `2.10` would pass the path-safe character filter (only word
+    chars + dot) AND match `\\.\\w+$` because `\\w` includes digits. The
+    extension regex is tightened to require the first extension character
+    to be a letter (`\\.[A-Za-z]\\w*$`), rejecting version-like tokens.
+
+    Real paths (`tasks.py`, `pyproject.toml`, `package-lock.json`) still
+    pass — every realistic file extension starts with a letter."""
+    body = """## Files to touch
+
+- Edit: src/foo.py for v1.0 release
+- New: pyproject.toml bumped to 2.10
+
+## Next
+"""
+    parsed = scope_check.parse_files_to_touch(body)
+    assert parsed is not None
+    # Real paths picked up.
+    assert "src/foo.py" in parsed
+    assert "pyproject.toml" in parsed
+    # Version-like tokens must NOT be classified as paths.
+    assert "v1.0" not in parsed
+    assert "2.10" not in parsed
+
+
 def test_fix1_bare_top_level_file_without_extension_is_rejected():
     """Issue #90 Fix 1 documented edge case: tokens without `/` and without
     a file extension (e.g. `Makefile`) still drop. Backticks are the
