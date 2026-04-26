@@ -36,6 +36,12 @@ jobs:
       - name: Find open PRs linked to this issue and re-dispatch scope check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # `gh` does not auto-read `GITHUB_REPOSITORY`; without `GH_REPO`
+          # (or `--repo` / a checked-out repo) every `gh` call below fails
+          # with "no repository context found". This step does not check
+          # the repo out, so `GH_REPO` is required.
+          # See https://github.com/cli/cli/issues/3556.
+          GH_REPO: ${{ github.repository }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
           set -euo pipefail
@@ -44,16 +50,22 @@ jobs:
 
           # `gh pr list --search` uses GitHub's PR search index — same source
           # backlinks use, cheaper than walking the issue Timeline API.
-          # `<N> in:body is:open is:pr` returns candidate open PRs whose
-          # body mentions the bare issue number; the closing-keyword regex
-          # below then filters to PRs that actually link the issue (not
-          # just mention it in passing). `--limit 1000` is a generous
-          # ceiling well above this repo's normal PR backlog so the regex
-          # filter sees effectively all candidates rather than silently
-          # truncating after the default page size.
+          # `<N> in:title,body is:open is:pr` returns candidate open PRs
+          # whose title or body mentions the bare issue number; the
+          # closing-keyword regex below then filters to PRs that actually
+          # link the issue (not just mention it in passing). Searching
+          # title+body matches `scripts/check_agent_safe_scope.py`, which
+          # detects closing keywords in both title and body — keeping the
+          # two link-detection paths consistent. `--limit 1000` is a
+          # generous ceiling well above this repo's normal PR backlog so
+          # the regex filter sees effectively all candidates rather than
+          # silently truncating after the default page size.
+          # `jq` folds title into body so the downstream regex evaluates
+          # title+body together without needing two separate match passes.
           CANDIDATES=$(gh pr list \
-            --search "$ISSUE_NUMBER in:body is:open is:pr" \
-            --json number,headRefName,body \
+            --search "$ISSUE_NUMBER in:title,body is:open is:pr" \
+            --json number,headRefName,title,body \
+            --jq 'map(.body = ((.title // "") + "\n" + (.body // "")))' \
             --limit 1000)
 
           # No-match is a no-op (common case — most issue label edits don't
@@ -70,15 +82,18 @@ jobs:
           # Match GitHub's three recognised closing keywords (Closes, Fixes,
           # Resolves) case-insensitively, with an optional `:` between the
           # keyword and the `#` (matches GitHub's own closing-keyword
-          # parser, which accepts `Closes: #123`). Per the issue #88 design
-          # decision this is the authoritative regex for retrigger
-          # discovery; `scripts/check_agent_safe_scope.py` uses a slightly
-          # narrower variant (no colon) which is fine — the script only
-          # needs to find the link going the other direction (PR -> issue)
-          # and the project convention is bare `Closes #N`. The trailing
+          # parser, which accepts `Closes: #123`). The leading
+          # `(^|[^[:alnum:]_])` requires a word boundary before the keyword
+          # so longer words like `discloses #88` do not produce false
+          # positives. Per the issue #88 design decision this is the
+          # authoritative regex for retrigger discovery;
+          # `scripts/check_agent_safe_scope.py` uses a slightly narrower
+          # variant (no colon) which is fine — the script only needs to
+          # find the link going the other direction (PR -> issue) and the
+          # project convention is bare `Closes #N`. The trailing
           # `([^0-9]|$)` prevents `#123` from matching a longer number
           # like `#1234`.
-          REGEX="(closes|fixes|resolves)[[:space:]]*:?[[:space:]]*#${ISSUE_NUMBER}([^0-9]|$)"
+          REGEX="(^|[^[:alnum:]_])(closes|fixes|resolves)[[:space:]]*:?[[:space:]]*#${ISSUE_NUMBER}([^0-9]|$)"
 
           # `jq -c` emits one compact JSON object per line for the bash loop.
           echo "$CANDIDATES" | jq -c '.[]' | while IFS= read -r pr; do
