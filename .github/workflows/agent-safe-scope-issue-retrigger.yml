@@ -78,7 +78,6 @@ jobs:
           # like `#1234`.
           REGEX="(closes|fixes|resolves)[[:space:]]*:?[[:space:]]*#${ISSUE_NUMBER}([^0-9]|$)"
 
-          MATCHED=0
           # `jq -c` emits one compact JSON object per line for the bash loop.
           echo "$CANDIDATES" | jq -c '.[]' | while IFS= read -r pr; do
             PR_NUM=$(echo "$pr" | jq -r '.number')
@@ -90,10 +89,13 @@ jobs:
               # Re-dispatch against the PR's head ref so the resulting check
               # status updates the right commit. Cross-workflow dispatch
               # within the same repo works with the default GITHUB_TOKEN.
+              # Same-repo PRs only — the agent-safe path does not accept
+              # fork contributions today; if that changes, switch the ref
+              # to the PR's base branch and have the dispatched workflow
+              # post its check status on the head SHA explicitly.
               gh workflow run agent-safe-scope.yml \
                 --ref "$HEAD_REF" \
                 -f pr_number="$PR_NUM"
-              MATCHED=$((MATCHED + 1))
             else
               echo "PR #$PR_NUM mentions $ISSUE_NUMBER but no closing-keyword link — skipping."
             fi
