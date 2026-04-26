@@ -67,10 +67,9 @@ forward into the partitioned shape:
 
 ## Follow-up
 
-Once #48 lands, #68 (`Replace cdk-construct skill stub with full
-skill once #48 lands`) replaces this stub with a full skill
-covering the settled props convention, public-attribute pattern,
-and CDK Nag suppression placement.
+Once #48 lands, #68 (which replaces this stub with a full skill)
+takes over — covering the settled props convention,
+public-attribute pattern, and CDK Nag suppression placement.
 
 ## See also
 
