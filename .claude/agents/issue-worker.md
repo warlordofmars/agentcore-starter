@@ -326,7 +326,13 @@ If the release milestone is drained, stop — do not unilaterally create a relea
 
 The 2026-04-26 force-push incident rewound `origin/development` by 11 merges. Root cause: an issue-worker session in a long-lived clone issued a wholesale `git push` that targeted every local branch with a remote counterpart, including a stale local `development` ref. Bash history was unrecoverable (Claude Code's Bash tool runs in a non-interactive shell), so the exact command is unknown — which means the rules below forbid the *category* of operations that can cause this damage, not just the specific candidate commands. Verbal hedges cover what they explicitly say; everything else is open. See ADR-0008 for the full rationale and the incident timeline.
 
-Rules W1–W7 are mechanical pattern-matches against command strings or git config values. They apply to every git operation in the issue cycle. Branch protection on `development` (#50) is the load-bearing GitHub-side defense; W1–W7 are the agent-side defense layered on top — both are needed because branch protection only catches what reaches the protected branch, and W1–W7 catch dangerous categories before they reach origin at all.
+Rules W1–W7 are mechanical pattern-matches against command strings or git config values. **They apply to git push commands and the immediate prep steps that precede a push (fetch + shadow-fast-forward in W4, ancestry check in W7). They do NOT apply to read-only or local-only git operations like `git status`, `git diff`, `git log`, or branch creation that targets only remote-tracking refs.** Specifically:
+
+- W1, W2, W3, W5, W6 are pre-push checks against the push command itself.
+- W4 fires once per push-bearing sequence (the §6 rebase + push flow, the §7 CI fix-and-push loop), at the top of that sequence.
+- W7 fires immediately after W4 in the same sequence.
+
+Branch protection on `development` (#50) is the load-bearing GitHub-side defense; W1–W7 are the agent-side defense layered on top — both are needed because branch protection only catches what reaches the protected branch, and W1–W7 catch dangerous categories before they reach origin at all.
 
 ### W1 — Allowlist of valid push targets
 
@@ -346,7 +352,7 @@ The issue-worker never creates `release/` branches — release cutting is a huma
 
 Every push must specify `<feature-branch>:<feature-branch>` explicitly. Bare `git push` (no arguments) and `git push origin` (no refspec) are forbidden — the default-upstream behaviour is too easy to misfire on a stale branch.
 
-**Mechanical check:** the command string must contain a colon-separated refspec where both sides equal the current feature branch name from `git rev-parse --abbrev-ref HEAD`.
+**Mechanical check:** the command must include a **positional refspec argument** of the form `<branch>:<branch>` where both sides equal the current feature branch name from `git rev-parse --abbrev-ref HEAD`. The positional refspec is the last `<src>:<dst>` argument after the remote name (e.g. `git push origin <branch>:<branch>` — the second argument after `origin`). It is **not** the colon-bearing value inside `--force-with-lease=<ref>:<sha>`, which is the lease's expected-SHA pin (a separate mechanism — see W3's discussion of the `--force-with-lease` form below). The positional refspec is what tells git which branch to push and where; the `--force-with-lease=` value is what tells git when to refuse the push. Different roles, different validation rules.
 
 This supersedes the §6 push examples (`git push -u origin <branch>`, `git push --force-with-lease`). The corrected canonical forms are:
 
@@ -419,7 +425,7 @@ The brittle case — Git < 2.0 where unset `push.default` defaulted to `matching
 
 The push refspec source side must equal the current branch from `git rev-parse --abbrev-ref HEAD`. The destination side must equal the same branch name. Pushing `feat/issue-89:development` is forbidden even if the source is correct — the destination must match.
 
-**Mechanical check:** parse the `<src>:<dst>` refspec from the push command. Both `<src>` and `<dst>` must equal the output of `git rev-parse --abbrev-ref HEAD`.
+**Mechanical check:** parse the **positional refspec argument** from the push command — the same `<src>:<dst>` argument W3 validates (the last positional argument after the remote name, e.g. `git push origin <branch>:<branch>`). Both `<src>` and `<dst>` must equal the output of `git rev-parse --abbrev-ref HEAD`. Like W3, this rule explicitly does **not** inspect the colon-bearing value inside `--force-with-lease=<ref>:<sha>` — that value is the lease's expected-SHA pin, not a push refspec.
 
 ### W7 — Stale-clone signal check
 
