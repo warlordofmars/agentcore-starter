@@ -56,6 +56,12 @@ from typing import Literal
 # marketing, growth, seo, design, ops, reliability, performance,
 # observability, ux, a11y) span the codebase and cannot be path-mapped —
 # their presence triggers a WARN fall-through, not a FAIL.
+#
+# These maps are forward-looking, NOT derived from the live label set.
+# Some entries (e.g. `mcp`, `sdk` in BOUNDED_AREA_GLOBS; most of META_AREAS)
+# are not yet live labels but are pre-mapped so a future label addition
+# doesn't silently fall through to WARN. Defensive — see follow-up issue
+# for ground-truthing the maps against the live taxonomy.
 
 BOUNDED_AREA_GLOBS: dict[str, list[str]] = {
     "api": ["src/starter/api/**", "tests/unit/test_api*.py", "tests/unit/test_agents_api.py"],
