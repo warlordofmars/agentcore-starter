@@ -50,6 +50,12 @@ export default defineConfig({
           { text: "Sessions & memory", link: "/agents/sessions" },
         ],
       },
+      {
+        text: "Operations",
+        items: [
+          { text: "Security and secrets", link: "/operations/security" },
+        ],
+      },
     ],
 
     socialLinks: [],
