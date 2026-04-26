@@ -79,8 +79,8 @@ agentcore-starter/
 │   ├── unit/                  # Pure logic, no AWS deps
 │   ├── integration/           # Tests against DynamoDB Local
 │   └── e2e/                   # Playwright tests against deployed env
-│       ├── test_auth_e2e.py
-│       └── test_ui_e2e.py     # Admin UI (Playwright)
+│       ├── __init__.py
+│       └── conftest.py        # Shared fixtures (e.g. live_admin_token)
 ├── scripts/
 │   └── check_copyright.py     # Copyright header linter
 ├── .github/
@@ -171,7 +171,8 @@ agentcore-starter/
 - Infra synth + Trivy IaC scan (CloudFormation SARIF → GitHub Security tab)
 - Trivy dependency audit (SARIF → GitHub Security tab)
 - SonarCloud scan
-- On push to `development`: deploy to dev + run all e2e tests
+- On push to `development`: deploy to dev + smoke-test the dev API
+  (the per-suite e2e tests are pending reauthor — see `tests/e2e/`)
 - On push to `main`: release + deploy to prod + back-merge to development
 
 Other workflows:
@@ -434,12 +435,18 @@ Must be re-run after every `inv dev` restart (DynamoDB Local is ephemeral).
 
 ### Running UI e2e tests locally
 
+> **Note:** `tests/e2e/` currently contains only `__init__.py` and
+> `conftest.py` — the per-suite test modules are pending reauthor.
+> The commands below will collect zero tests until those suites land
+> (`pytest` exit 5 — "no tests ran"). Documented here so the wiring
+> stays correct for when the suites are restored.
+
 ```bash
 # Auto-detects the Vite port — no env vars to set manually
 uv run inv e2e-local
 
 # Run a specific test file
-uv run inv e2e-local --tests tests/e2e/test_ui_e2e.py
+uv run inv e2e-local --tests tests/e2e/<file>.py
 
 # Repeat N times to check for flakiness
 uv run inv e2e-local --n 5
@@ -458,8 +465,9 @@ Key local e2e gotchas:
   `CORS_ORIGINS=http://localhost:<port>` when starting the stack.
 - `inv seed` (or `inv dev --seed`) must succeed before running e2e tests —
   if auth bypass returns 500, the table is likely missing.
-- `test_docs_e2e.py` is excluded automatically — those tests require a
-  deployed VitePress build; run them against the deployed stack with `inv e2e`.
+- Any `test_docs_e2e.py` suite (when restored) is excluded automatically —
+  those tests require a deployed VitePress build; run them against the
+  deployed stack with `inv e2e`.
 
 ### When to run local e2e tests
 
