@@ -49,38 +49,21 @@ forward into the partitioned shape:
 
 ### Props convention not settled
 
-- **What's missing:** Whether constructs accept typed `**kwargs`,
-  a `@dataclass` props object, or a TypedDict — and the naming
-  convention for the props type.
-- **Why deferred:** The partition PR is what picks the shape;
-  picking it here would pre-commit a decision that belongs to
-  the partition design.
-- **Unblocks when:** #48 lands the first partitioned constructs
-  and establishes the props shape used across them.
+- **What's missing:** Whether constructs accept typed `**kwargs`, a `@dataclass` props object, or a TypedDict — and the naming convention for the props type.
+- **Why deferred:** The partition PR is what picks the shape; picking it here would pre-commit a decision that belongs to the partition design.
+- **Unblocks when:** #48 lands the first partitioned constructs and establishes the props shape used across them.
 
 ### Public-attribute pattern for cross-construct exposure
 
-- **What's missing:** The exact convention for how one construct
-  exposes a value (table ARN, function URL, role) to another —
-  attribute on the construct instance, accessor method, or
-  re-exposed via stack-level outputs.
-- **Why deferred:** The pattern only emerges once two or more
-  constructs need to consume each other's outputs at the
-  composer level.
-- **Unblocks when:** #48 wires the first cross-construct
-  consumer and establishes the lookup shape.
+- **What's missing:** The exact convention for how one construct exposes a value (table ARN, function URL, role) to another — attribute on the construct instance, accessor method, or re-exposed via stack-level outputs.
+- **Why deferred:** The pattern only emerges once two or more constructs need to consume each other's outputs at the composer level.
+- **Unblocks when:** #48 wires the first cross-construct consumer and establishes the lookup shape.
 
 ### Construct-level vs composer-level helpers
 
-- **What's missing:** Whether helpers like `Edge.compress: bool`
-  and `Secrets.validate_no_placeholders()` belong on the
-  construct that owns the resource or on the composer that
-  assembles them.
-- **Why deferred:** The boundary depends on whether the helper
-  is a per-resource invariant (construct) or a stack-wide
-  validation (composer); the partition PR is what draws the line.
-- **Unblocks when:** #48 places the first such helpers and the
-  construct-vs-composer boundary becomes visible.
+- **What's missing:** Whether helpers like `Edge.compress: bool` and `Secrets.validate_no_placeholders()` belong on the construct that owns the resource or on the composer that assembles them.
+- **Why deferred:** The boundary depends on whether the helper is a per-resource invariant (construct) or a stack-wide validation (composer); the partition PR is what draws the line.
+- **Unblocks when:** #48 places the first such helpers and the construct-vs-composer boundary becomes visible.
 
 ## Follow-up
 
