@@ -31,6 +31,17 @@ name: agent-safe scope check
 on:
   pull_request:
     types: [opened, synchronize, labeled, unlabeled, edited]
+  # Issue label / body changes can invalidate a previously-passing scope
+  # evaluation without any new commits hitting the PR's head branch
+  # (issue #88). The companion workflow `agent-safe-scope-issue-retrigger.yml`
+  # discovers PRs linked to a changed issue and re-dispatches this workflow
+  # against each PR's head ref so branch protection sees a fresh result.
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to re-evaluate (required when dispatched manually or by the issue-retrigger workflow)."
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -51,7 +62,10 @@ jobs:
       - name: Run scope check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          # Resolve PR_NUMBER from whichever trigger fired. `pull_request`
+          # supplies `event.pull_request.number`; `workflow_dispatch` supplies
+          # `event.inputs.pr_number`. Exactly one is non-empty per run.
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
         run: |
           set -euo pipefail
           # Use uv run so the script picks up the project's Python version

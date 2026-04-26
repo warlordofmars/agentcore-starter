@@ -1,0 +1,102 @@
+name: agent-safe scope check (issue retrigger)
+
+# Re-evaluate the agent-safe scope check on open PRs when their linked
+# issue's labels or body change (issue #88).
+#
+# The primary `agent-safe-scope.yml` workflow only fires on `pull_request`
+# events, so a label edit on the linked **issue** (e.g. stripping `area:api`
+# from the scope) leaves the PR's last evaluation stale until the next push.
+# This workflow closes that gap: it discovers open PRs whose body references
+# the changed issue via a `Closes #<N>` / `Fixes #<N>` / `Resolves #<N>`
+# marker (case-insensitive, optional `:` and `#`) and re-dispatches the
+# scope-check workflow against each match's head ref. Branch protection
+# then sees a fresh result on the same head SHA without needing a new
+# commit on the PR branch.
+#
+# Design rationale: see issue #88 §"Design decisions" comment for the
+# tradeoff analysis (workflow re-dispatch vs. status-check refresh) and the
+# choice of `gh pr list --search` for PR discovery.
+
+on:
+  issues:
+    types: [labeled, unlabeled, edited]
+
+permissions:
+  issues: read
+  pull-requests: read
+  # Required to call `gh workflow run` against `agent-safe-scope.yml` —
+  # cross-workflow dispatch needs `actions: write` even within the same repo.
+  actions: write
+
+jobs:
+  retrigger-scope-check:
+    name: Re-dispatch scope check on linked PRs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find open PRs linked to this issue and re-dispatch scope check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+
+          echo "Issue #$ISSUE_NUMBER changed; searching for linked open PRs."
+
+          # `gh pr list --search` uses GitHub's PR search index — same source
+          # backlinks use, cheaper than walking the issue Timeline API.
+          # `<N> in:body is:open is:pr` returns every open PR whose body
+          # mentions the bare issue number; the closing-keyword regex below
+          # then filters to PRs that actually link the issue (not just
+          # mention it in passing).
+          CANDIDATES=$(gh pr list \
+            --search "$ISSUE_NUMBER in:body is:open is:pr" \
+            --json number,headRefName,body \
+            --limit 50)
+
+          # No-match is a no-op (common case — most issue label edits don't
+          # have a live PR attached). Exit cleanly so the workflow run
+          # surfaces a green check.
+          COUNT=$(echo "$CANDIDATES" | jq 'length')
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::notice::No open PRs reference issue #$ISSUE_NUMBER — nothing to re-dispatch."
+            exit 0
+          fi
+
+          echo "Search returned $COUNT candidate PR(s); filtering by closing-keyword regex."
+
+          # Match GitHub's three recognised closing keywords (Closes, Fixes,
+          # Resolves) case-insensitively, with an optional `:` between the
+          # keyword and the `#` (matches GitHub's own closing-keyword
+          # parser, which accepts `Closes: #123`). Per the issue #88 design
+          # decision this is the authoritative regex for retrigger
+          # discovery; `scripts/check_agent_safe_scope.py` uses a slightly
+          # narrower variant (no colon) which is fine — the script only
+          # needs to find the link going the other direction (PR -> issue)
+          # and the project convention is bare `Closes #N`. The trailing
+          # `([^0-9]|$)` prevents `#123` from matching a longer number
+          # like `#1234`.
+          REGEX="(closes|fixes|resolves)[[:space:]]*:?[[:space:]]*#${ISSUE_NUMBER}([^0-9]|$)"
+
+          MATCHED=0
+          # `jq -c` emits one compact JSON object per line for the bash loop.
+          echo "$CANDIDATES" | jq -c '.[]' | while IFS= read -r pr; do
+            PR_NUM=$(echo "$pr" | jq -r '.number')
+            HEAD_REF=$(echo "$pr" | jq -r '.headRefName')
+            BODY=$(echo "$pr" | jq -r '.body')
+
+            if echo "$BODY" | grep -qiE "$REGEX"; then
+              echo "PR #$PR_NUM (head: $HEAD_REF) links issue #$ISSUE_NUMBER — re-dispatching scope check."
+              # Re-dispatch against the PR's head ref so the resulting check
+              # status updates the right commit. Cross-workflow dispatch
+              # within the same repo works with the default GITHUB_TOKEN.
+              gh workflow run agent-safe-scope.yml \
+                --ref "$HEAD_REF" \
+                -f pr_number="$PR_NUM"
+              MATCHED=$((MATCHED + 1))
+            else
+              echo "PR #$PR_NUM mentions $ISSUE_NUMBER but no closing-keyword link — skipping."
+            fi
+          done
+
+          echo "::notice::Issue #$ISSUE_NUMBER retrigger sweep complete."
