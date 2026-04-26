@@ -319,12 +319,14 @@ All git push operations in this workflow — feature/fix branches in the
 to production" flow below, and every push in the `issue-worker`
 autonomous cycle — are bound by the W1–W7 push-discipline rules in
 [`.claude/agents/issue-worker.md` §"Push discipline"](.claude/agents/issue-worker.md).
-W1's branch-prefix allowlist permits `feat/`, `fix/`, `chore/`, **and
-`release/`** as valid push targets; the issue-worker only ever creates
-the first three (it never cuts releases — that's a human flow), but the
-release branch is a legitimate target for human pushes. ADR-0008 captures
-the rationale and the 2026-04-26 incident timeline. The rules themselves
-are the authoritative source — read them there.
+W1 has two scopes: the **issue-worker scope** allows
+`feat/` / `fix/` / `chore/` only (the agent never creates release
+branches); the **wider project scope** (when humans run W1–W7 manually
+during the release flow below) extends the allowlist to include
+`release/`. Both scopes share the same rule shape — explicit refspecs,
+no wholesale pushes, no bare `git push`. ADR-0008 captures the rationale
+and the 2026-04-26 incident timeline. The rules themselves are the
+authoritative source — read them there.
 
 ### Merge strategy
 

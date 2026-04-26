@@ -182,6 +182,11 @@ pin to it:
 git fetch origin
 # Run the W4 shadow-branch fast-forward loop here (see ## Push discipline).
 PRE_REBASE_SHA=$(git rev-parse --verify --quiet origin/<branch>)   # capture BEFORE rebase
+# PRE_REBASE_SHA must be non-empty here. If empty, the lease form below
+# becomes ambiguous (`--force-with-lease=<branch>:` with empty SHA is
+# accepted by git as "no expected SHA" and silently degrades to no-lease).
+# Halt rather than proceeding with a degraded lease:
+[ -n "$PRE_REBASE_SHA" ] || { echo "HUMAN_INPUT_REQUIRED: origin/<branch> not found — cannot capture PRE_REBASE_SHA for the lease (W3/W6)"; exit 1; }
 git rebase origin/development
 git log --oneline origin/development..HEAD   # must show ONLY your commits
 git push --force-with-lease=<branch>:$PRE_REBASE_SHA origin <branch>:<branch>
@@ -218,7 +223,7 @@ If any check fails:
    appended, no rebase), use `git push origin <branch>:<branch>`.
    If the fix required a fresh rebase, **re-capture
    `PRE_REBASE_SHA=$(git rev-parse --verify --quiet origin/<branch>)`
-   before the rebase**, then use
+   before the rebase** (and halt with `HUMAN_INPUT_REQUIRED: origin/<branch> not found — cannot capture PRE_REBASE_SHA for the lease (W3/W6)` if the captured value is empty, same shape as §6), then use
    `git push --force-with-lease=<branch>:$PRE_REBASE_SHA origin <branch>:<branch>`.
    The `PRE_REBASE_SHA` from §6 is no longer valid — origin has moved
    (your previous push completed), so the lease must pin to the new
@@ -327,9 +332,9 @@ Rules W1–W7 are mechanical pattern-matches against command strings or git conf
 
 Push only to the current feature branch. Pushing to `development`, `main`, or any branch other than the explicitly-named feature branch created in §2 is forbidden.
 
-**Mechanical check:** before any `git push`, run `git rev-parse --abbrev-ref HEAD` and confirm the result starts with `feat/`, `fix/`, or `chore/`. If HEAD is `development`, `main`, or any other branch, halt — do not push.
+**Mechanical check (issue-worker scope):** before any `git push`, run `git rev-parse --abbrev-ref HEAD` and confirm the result starts with `feat/`, `fix/`, or `chore/`. If HEAD is `development`, `main`, or any other branch, halt — do not push.
 
-The `release/` prefix is also a valid push target in the wider project workflow (see CLAUDE.md "Releasing to production"), but the issue-worker never creates a release branch — release cutting is a human-operated flow outside this agent's scope. So for this agent, the allowlist is exactly `feat/` / `fix/` / `chore/`.
+The issue-worker never creates `release/` branches — release cutting is a human-operated flow outside this agent's scope (see CLAUDE.md "Releasing to production"). The W1 allowlist for **the wider project workflow** (when humans run W1–W7 manually) extends to `release/` as well. Both surfaces share the same rule shape; the only difference is the allowed prefix set, which is a function of who/what is invoking the procedure. CLAUDE.md cites the wider allowlist (`feat/` / `fix/` / `chore/` / `release/`); this section cites the agent-scoped allowlist (`feat/` / `fix/` / `chore/`). The two are intentionally consistent and intentionally different.
 
 ### W2 — Prohibition on wholesale pushes
 
@@ -418,7 +423,7 @@ The push refspec source side must equal the current branch from `git rev-parse -
 
 ### W7 — Stale-clone signal check
 
-After W4 has run (fetch + fast-forward), if any **protected shadow branch** (local `development`, local `main`) is no longer a strict ancestor of its `origin/<branch>` HEAD, the shadow has actually *diverged* — it has local commits or was based on a different line of history. Surface this as a stale-clone signal before any push. Halt and surface — do not silently block, and do not auto-resolve.
+After W4 has run (fetch + fast-forward), if any **protected shadow branch** (local `development`, local `main`) is no longer an ancestor (or equal SHA) of its `origin/<branch>` HEAD, the shadow has actually *diverged* — it has local commits or was based on a different line of history. Surface this as a stale-clone signal before any push. Halt and surface — do not silently block, and do not auto-resolve.
 
 The W4 fast-forward step absorbs most healthy-lag cases by moving the shadow ref to origin's HEAD. The remaining healthy-lag case is the worktree-locked variant, where another linked worktree owns the ref and W4 left it alone. That case still passes W7 because local is still an ancestor of origin (the worktree owner just hasn't fast-forwarded yet). W7 fires only on **true divergence**: local has commits not on origin's line of history.
 
@@ -453,12 +458,12 @@ matching
 ```
 HUMAN_INPUT_REQUIRED: push.default is 'matching' — refusing to push (W5).
 This config is the legacy default and can turn any bare 'git push' into a
-wholesale push. Either set 'git config push.default simple' for this repo,
+wholesale push. Either set 'git config --local push.default simple' for this repo,
 or run the push manually with an explicit refspec after acknowledging the
 risk.
 ```
 
-**Suppose the human resolves W5** (`git config push.default simple`). The agent re-checks. W4 now runs the fetch + fast-forward loop:
+**Suppose the human resolves W5** (`git config --local push.default simple`). The agent re-checks. W4 now runs the fetch + fast-forward loop:
 
 ```
 $ git fetch origin
