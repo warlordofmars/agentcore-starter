@@ -4,14 +4,14 @@ name: agent-safe scope check (issue retrigger)
 # issue's labels or body change (issue #88).
 #
 # The primary `agent-safe-scope.yml` workflow only fires on `pull_request`
-# events, so a label edit on the linked **issue** (e.g. stripping `area:api`
+# events, so a label edit on the linked **issue** (e.g. stripping `api`
 # from the scope) leaves the PR's last evaluation stale until the next push.
 # This workflow closes that gap: it discovers open PRs whose body references
 # the changed issue via a `Closes #<N>` / `Fixes #<N>` / `Resolves #<N>`
-# marker (case-insensitive, optional `:` and `#`) and re-dispatches the
-# scope-check workflow against each match's head ref. Branch protection
-# then sees a fresh result on the same head SHA without needing a new
-# commit on the PR branch.
+# marker (case-insensitive, optional `:` between the keyword and the `#`)
+# and re-dispatches the scope-check workflow against each match's head ref.
+# Branch protection then sees a fresh result on the same head SHA without
+# needing a new commit on the PR branch.
 #
 # Design rationale: see issue #88 §"Design decisions" comment for the
 # tradeoff analysis (workflow re-dispatch vs. status-check refresh) and the
@@ -36,7 +36,6 @@ jobs:
       - name: Find open PRs linked to this issue and re-dispatch scope check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
           set -euo pipefail
