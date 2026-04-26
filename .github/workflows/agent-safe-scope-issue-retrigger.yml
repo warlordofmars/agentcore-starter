@@ -1,0 +1,159 @@
+name: agent-safe scope check (issue retrigger)
+
+# Re-evaluate the agent-safe scope check on open PRs when their linked
+# issue's labels change (issue #88).
+#
+# The primary `agent-safe-scope.yml` workflow only fires on `pull_request`
+# events, so a label edit on the linked **issue** (e.g. stripping `api`
+# from the scope) leaves the PR's last evaluation stale until the next push.
+# This workflow closes that gap: it discovers open PRs whose body references
+# the changed issue via a `Closes #<N>` / `Fixes #<N>` / `Resolves #<N>`
+# marker (case-insensitive, optional `:` between the keyword and the `#`)
+# and re-dispatches the scope-check workflow against each match's head ref.
+# Branch protection then sees a fresh result on the same head SHA without
+# needing a new commit on the PR branch.
+#
+# Design rationale: see issue #88 §"Design decisions" comment for the
+# tradeoff analysis (workflow re-dispatch vs. status-check refresh) and the
+# choice of `gh pr list --search` for PR discovery.
+
+on:
+  issues:
+    # Per #88's scoped AC, retrigger only on label changes. The `edited`
+    # trigger (body/title edits) is called out as a separate follow-up in
+    # #88's "Out of scope" section — file a new issue if body-driven
+    # retrigger is needed.
+    types: [labeled, unlabeled]
+
+permissions:
+  issues: read
+  pull-requests: read
+  # Required to call `gh workflow run` against `agent-safe-scope.yml` —
+  # cross-workflow dispatch needs `actions: write` even within the same repo.
+  actions: write
+
+jobs:
+  retrigger-scope-check:
+    name: Re-dispatch scope check on linked PRs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find open PRs linked to this issue and re-dispatch scope check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # `gh` does not auto-read `GITHUB_REPOSITORY`; without `GH_REPO`
+          # (or `--repo` / a checked-out repo) every `gh` call below fails
+          # with "no repository context found". This step does not check
+          # the repo out, so `GH_REPO` is required.
+          # See https://github.com/cli/cli/issues/3556.
+          GH_REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+
+          echo "Issue #$ISSUE_NUMBER changed; searching for linked open PRs."
+
+          # `gh pr list --search` uses GitHub's PR search index — same source
+          # backlinks use, cheaper than walking the issue Timeline API.
+          # `<N> in:title,body is:open is:pr` returns candidate open PRs
+          # whose title or body mentions the bare issue number; the
+          # closing-keyword regex below then filters to PRs that actually
+          # link the issue (not just mention it in passing). Searching
+          # title+body matches `scripts/check_agent_safe_scope.py`, which
+          # detects closing keywords in both title and body — keeping the
+          # two link-detection paths consistent. `--limit 1000` is a
+          # generous ceiling well above this repo's normal PR backlog so
+          # the regex filter sees effectively all candidates rather than
+          # silently truncating after the default page size.
+          # `jq` folds title into body so the downstream regex evaluates
+          # title+body together without needing two separate match passes.
+          CANDIDATES=$(gh pr list \
+            --search "$ISSUE_NUMBER in:title,body is:open is:pr" \
+            --json number,headRefName,title,body \
+            --jq 'map(.body = ((.title // "") + "\n" + (.body // "")))' \
+            --limit 1000)
+
+          # No-match is a no-op (common case — most issue label edits don't
+          # have a live PR attached). Exit cleanly so the workflow run
+          # surfaces a green check.
+          COUNT=$(echo "$CANDIDATES" | jq 'length')
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::notice::No open PRs reference issue #$ISSUE_NUMBER — nothing to re-dispatch."
+            exit 0
+          fi
+
+          echo "Search returned $COUNT candidate PR(s); filtering by closing-keyword regex."
+
+          # Match GitHub's three recognised closing keywords (Closes, Fixes,
+          # Resolves) case-insensitively, with an optional `:` between the
+          # keyword and the `#` (matches GitHub's own closing-keyword
+          # parser, which accepts `Closes: #123`). The leading
+          # `(^|[^[:alnum:]_])` requires a word boundary before the keyword
+          # so longer words like `discloses #88` do not produce false
+          # positives. Per the issue #88 design decision this is the
+          # authoritative regex for retrigger discovery;
+          # `scripts/check_agent_safe_scope.py` uses a slightly narrower
+          # variant (no colon) which is fine — the script only needs to
+          # find the link going the other direction (PR -> issue) and the
+          # project convention is bare `Closes #N`. The trailing
+          # `([^0-9]|$)` prevents `#123` from matching a longer number
+          # like `#1234`.
+          REGEX="(^|[^[:alnum:]_])(closes|fixes|resolves)[[:space:]]*:?[[:space:]]*#${ISSUE_NUMBER}([^0-9]|$)"
+
+          # `jq -c` emits one compact JSON object per line for the bash loop.
+          echo "$CANDIDATES" | jq -c '.[]' | while IFS= read -r pr; do
+            PR_NUM=$(echo "$pr" | jq -r '.number')
+            HEAD_REF=$(echo "$pr" | jq -r '.headRefName')
+            BODY=$(echo "$pr" | jq -r '.body')
+
+            # Normalise CR/LF to spaces so `Closes:\n#88`-style references
+            # (keyword and number on different lines) are treated the same
+            # as on a single line. `grep` is line-mode by default and
+            # cannot otherwise match across newlines, but the scope-check
+            # script (`scripts/check_agent_safe_scope.py`) uses Python
+            # `re` with `\s+` which does — keep the two link-detection
+            # paths consistent.
+            NORMALISED_BODY=$(printf '%s' "$BODY" | tr '\r\n' '  ')
+
+            # `printf '%s'` instead of `echo` so PR bodies starting with
+            # `-n` / `-e` (or containing escape sequences echo would
+            # interpret) are passed verbatim to grep.
+            if printf '%s' "$NORMALISED_BODY" | grep -qiE "$REGEX"; then
+              echo "PR #$PR_NUM (head: $HEAD_REF) links issue #$ISSUE_NUMBER — re-dispatching scope check."
+              # Re-dispatch against the PR's head ref so the resulting check
+              # status updates the right commit. Cross-workflow dispatch
+              # within the same repo works with the default GITHUB_TOKEN.
+              # Same-repo PRs only — the agent-safe path does not accept
+              # fork contributions today; if that changes, switch the ref
+              # to the PR's base branch and have the dispatched workflow
+              # post its check status on the head SHA explicitly.
+              #
+              # Dispatch can fail when the PR's head branch predates the
+              # `workflow_dispatch` trigger being added to
+              # `agent-safe-scope.yml` (older PRs that haven't merged or
+              # rebased the base branch since). Catch the per-PR failure
+              # and emit a warning so one stale branch doesn't fail the
+              # whole sweep — the scope evaluation will simply remain
+              # stale on that PR until it next pushes a commit.
+              if DISPATCH_OUTPUT=$(gh workflow run agent-safe-scope.yml \
+                --ref "$HEAD_REF" \
+                -f pr_number="$PR_NUM" 2>&1); then
+                echo "PR #$PR_NUM scope check re-dispatched successfully."
+              else
+                # Keep the workflow-command annotation single-line and
+                # free of untrusted content. GitHub Actions parses `::`
+                # workflow commands from any log line, not just
+                # annotation lines, so embedding raw `gh` error output
+                # (which may contain `::` sequences or newlines) would
+                # both break the annotation and enable workflow-command
+                # injection. Indent each output line by two spaces so any
+                # leading `::` cannot be parsed as a workflow command.
+                echo "::warning::PR #$PR_NUM (head: $HEAD_REF) scope check dispatch failed; skipping."
+                echo "Dispatch output (sanitised — leading whitespace prevents workflow-command parsing):"
+                printf '%s\n' "$DISPATCH_OUTPUT" | sed 's/\r$//; s/^/  /'
+              fi
+            else
+              echo "PR #$PR_NUM mentions $ISSUE_NUMBER but no closing-keyword link — skipping."
+            fi
+          done
+
+          echo "::notice::Issue #$ISSUE_NUMBER retrigger sweep complete."
