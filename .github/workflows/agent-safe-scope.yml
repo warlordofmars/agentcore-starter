@@ -1,0 +1,53 @@
+name: agent-safe scope check
+
+# Mechanical scope-boundary backstop for `agent-safe` PRs (issue #77).
+# When a PR labelled `agent-safe` ships, its diff must stay inside the linked
+# issue's stated scope. This workflow runs the same check that
+# `code-reviewer` runs pre-merge — the second layer of defence-in-depth so a
+# slipped-through breach (PR #76 scenario) gets blocked at the branch
+# protection layer regardless of whether the agent loop noticed.
+#
+# Trigger types per issue #77 refinements §"Race condition handling":
+#   opened       — fire on PR creation
+#   synchronize  — fire on every push (catches diff drift)
+#   labeled      — fire when `agent-safe` is added mid-PR
+#   unlabeled    — fire when `agent-safe` is removed (job becomes neutral)
+#   edited       — fire when the PR body is edited (linked-issue resolution)
+#
+# The job is conditioned on `agent-safe` being present so non-`agent-safe`
+# PRs see a no-op pass.
+#
+# Branch protection: this check must be added to the required-checks list
+# for `development` (and `main`) for the gate to actually block merge —
+# that's a manual one-time setup step. See PR #77 follow-ups.
+
+on:
+  pull_request:
+    types: [opened, synchronize, labeled, unlabeled, edited]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  scope-check:
+    name: Scope check (agent-safe PRs)
+    runs-on: ubuntu-latest
+    if: contains(github.event.pull_request.labels.*.name, 'agent-safe')
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "latest"
+
+      - name: Run scope check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          # Use uv run so the script picks up the project's Python version
+          # and stdlib only (the script has no third-party deps).
+          uv run python scripts/check_agent_safe_scope.py --pr "$PR_NUMBER"
