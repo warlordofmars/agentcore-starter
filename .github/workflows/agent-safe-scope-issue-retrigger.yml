@@ -86,7 +86,10 @@ jobs:
             HEAD_REF=$(echo "$pr" | jq -r '.headRefName')
             BODY=$(echo "$pr" | jq -r '.body')
 
-            if echo "$BODY" | grep -qiE "$REGEX"; then
+            # `printf '%s'` instead of `echo` so PR bodies starting with
+            # `-n` / `-e` (or containing escape sequences echo would
+            # interpret) are passed verbatim to grep.
+            if printf '%s' "$BODY" | grep -qiE "$REGEX"; then
               echo "PR #$PR_NUM (head: $HEAD_REF) links issue #$ISSUE_NUMBER — re-dispatching scope check."
               # Re-dispatch against the PR's head ref so the resulting check
               # status updates the right commit. Cross-workflow dispatch
@@ -95,9 +98,21 @@ jobs:
               # fork contributions today; if that changes, switch the ref
               # to the PR's base branch and have the dispatched workflow
               # post its check status on the head SHA explicitly.
-              gh workflow run agent-safe-scope.yml \
+              #
+              # Dispatch can fail when the PR's head branch predates the
+              # `workflow_dispatch` trigger being added to
+              # `agent-safe-scope.yml` (older PRs that haven't merged or
+              # rebased the base branch since). Catch the per-PR failure
+              # and emit a warning so one stale branch doesn't fail the
+              # whole sweep — the scope evaluation will simply remain
+              # stale on that PR until it next pushes a commit.
+              if DISPATCH_OUTPUT=$(gh workflow run agent-safe-scope.yml \
                 --ref "$HEAD_REF" \
-                -f pr_number="$PR_NUM"
+                -f pr_number="$PR_NUM" 2>&1); then
+                echo "PR #$PR_NUM scope check re-dispatched successfully."
+              else
+                echo "::warning::PR #$PR_NUM (head: $HEAD_REF) scope check dispatch failed; skipping. ${DISPATCH_OUTPUT}"
+              fi
             else
               echo "PR #$PR_NUM mentions $ISSUE_NUMBER but no closing-keyword link — skipping."
             fi
