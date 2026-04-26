@@ -8,7 +8,7 @@ triggers:
   areas:
     - "api"
 ---
-> STUB — Runtime + Memory conventions blocked by #70; follow-up #71
+> STUB — Runtime conventions blocked by #70; follow-up #71
 
 # bedrock-agent
 
