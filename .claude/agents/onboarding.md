@@ -111,6 +111,128 @@ Fix any failures before continuing.
 
 ---
 
+## Phase 1.5 — branch model + protections (run after fork, before any code work)
+
+The template expects a dual-branch model (`development` is the GitHub default; `main` is release-only) with seven required CI status checks on both branches and `allow_auto_merge=true` so `gh pr merge --auto --squash` works as documented in CLAUDE.md. A fresh fork ships without any of this — apply it before opening any PR. The expected state is checked in at `infra/branch-protection.expected.json`.
+
+**Order is non-negotiable: PATCH first, PUT second.** The PATCH enables `allow_auto_merge`; the PUT then locks the branches behind required checks. Reversing the order means the very PR that enables auto-merge cannot itself auto-merge under the new protection rules — you would have to manually merge it under admin override.
+
+**Use the JSON-input form (`gh api --input -`).** The `-F field=` shorthand silently passes empty strings instead of JSON `null` for the `required_pull_request_reviews` and `restrictions` fields, and the API rejects empty strings. The form below is the working syntax.
+
+**`development` must exist before the PATCH runs.** A fresh fork (or a repo created from this template without "Include all branches" ticked) ships with `main` only. Setting `default_branch=development` on a repo where the branch doesn't exist is rejected by the API, and the subsequent PUT to `/branches/development/protection` would fail too. Step 0 below creates `development` from `main` if it's missing — it's a no-op when the branch already exists.
+
+```bash
+# Resolve the fork's owner/repo slug
+REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+
+# Step 0 — ensure `development` exists (no-op if already present)
+if ! gh api "/repos/$REPO/branches/development" --silent 2>/dev/null; then
+  MAIN_SHA=$(gh api "/repos/$REPO/branches/main" --jq .commit.sha)
+  gh api -X POST "/repos/$REPO/git/refs" \
+    -f ref="refs/heads/development" \
+    -f sha="$MAIN_SHA"
+  echo "Created development from main at $MAIN_SHA"
+else
+  echo "development already exists — skipping create"
+fi
+
+# Step 1 — repo merge settings (MUST run first)
+# All six fields tracked by the snapshot are set explicitly so the post-PATCH
+# state matches `infra/branch-protection.expected.json` regardless of the
+# fork's defaults — the verification step below will diff them all.
+gh api -X PATCH "/repos/$REPO" --input - <<'EOF'
+{
+  "default_branch": "development",
+  "allow_squash_merge": true,
+  "allow_merge_commit": true,
+  "allow_rebase_merge": false,
+  "delete_branch_on_merge": true,
+  "allow_auto_merge": true
+}
+EOF
+
+# Step 2 — branch protection (apply to both main and development)
+for branch in main development; do
+  gh api -X PUT "/repos/$REPO/branches/$branch/protection" --input - <<'EOF'
+{
+  "required_status_checks": {
+    "strict": true,
+    "contexts": [
+      "Lint & Type Check",
+      "Unit Tests",
+      "Integration Tests (DynamoDB Local)",
+      "Frontend Tests & Build",
+      "Coverage Report",
+      "Infra Synth",
+      "Security Audit"
+    ]
+  },
+  "enforce_admins": false,
+  "required_pull_request_reviews": null,
+  "restrictions": null,
+  "allow_force_pushes": false,
+  "allow_deletions": false,
+  "required_linear_history": false,
+  "required_conversation_resolution": false
+}
+EOF
+done
+```
+
+### Verify live state matches the checked-in snapshot
+
+The snapshot at `infra/branch-protection.expected.json` is the source of truth. It is a verbatim capture of the GitHub API response shape, so fields that the API omits when null (notably `required_pull_request_reviews` and `restrictions` when neither is configured) are absent from the snapshot — `jq .field` returns `null` for absent fields, which is the comparison contract: an absent snapshot field equals a `null` live field.
+
+The diff filter below covers every field set by Phase 1.5's PATCH and PUT plus every protection sub-setting that the snapshot records, with two intentional exclusions:
+
+- **URL fields** (`url`, `contexts_url`, `required_status_checks.url`, `required_signatures.url`) embed the upstream `warlordofmars/agentcore-starter` slug and are not portable across forks.
+- **`required_status_checks.checks`** (the `[{context, app_id}]` array) is excluded because `contexts` and `checks[].context` are derived from the same PUT input — comparing `contexts` covers the load-bearing semantics. The `app_id` value is the GitHub Apps installation ID for the GitHub Actions app (15368), which is the same across forks but adds noise without adding signal.
+
+```bash
+EXPECTED=infra/branch-protection.expected.json
+
+# Compare repo settings (full block — all six snapshot-tracked fields)
+LIVE_REPO=$(gh api "/repos/$REPO" \
+  --jq '{allow_auto_merge, allow_merge_commit, allow_rebase_merge, allow_squash_merge, default_branch, delete_branch_on_merge}')
+EXPECTED_REPO=$(jq -c .repo_settings "$EXPECTED")
+diff <(echo "$LIVE_REPO" | jq -S .) <(echo "$EXPECTED_REPO" | jq -S .) \
+  && echo "repo_settings: OK" \
+  || { echo "HALT — repo_settings drift; resolve before continuing"; exit 1; }
+
+# Compare protection — every snapshot-tracked field plus everything Phase 1.5
+# explicitly configures, with URL fields excluded. `null`-returning sub-paths
+# (e.g., absent `required_pull_request_reviews`) compare equal between snapshot
+# and live, which is the intended contract.
+PROTECTION_FIELDS='{
+  required_status_checks: {
+    strict: .required_status_checks.strict,
+    contexts: .required_status_checks.contexts
+  },
+  required_signatures: .required_signatures.enabled,
+  enforce_admins: .enforce_admins.enabled,
+  required_pull_request_reviews: .required_pull_request_reviews,
+  restrictions: .restrictions,
+  required_linear_history: .required_linear_history.enabled,
+  allow_force_pushes: .allow_force_pushes.enabled,
+  allow_deletions: .allow_deletions.enabled,
+  block_creations: .block_creations.enabled,
+  required_conversation_resolution: .required_conversation_resolution.enabled,
+  lock_branch: .lock_branch.enabled,
+  allow_fork_syncing: .allow_fork_syncing.enabled
+}'
+for branch in main development; do
+  LIVE=$(gh api "/repos/$REPO/branches/$branch/protection" --jq "$PROTECTION_FIELDS")
+  EXPECTED_BRANCH=$(jq -c ".branches.\"$branch\" | $PROTECTION_FIELDS" "$EXPECTED")
+  diff <(echo "$LIVE" | jq -S .) <(echo "$EXPECTED_BRANCH" | jq -S .) \
+    && echo "$branch protection: OK" \
+    || { echo "HALT — $branch protection drift; resolve before continuing"; exit 1; }
+done
+```
+
+If either diff is non-empty, halt and surface the drift before moving on — onboarding is not complete until live state matches the snapshot.
+
+---
+
 ## Phase 2 — AWS prerequisites
 
 These must exist before the first CDK deploy. Check each:
@@ -347,3 +469,11 @@ Phase 6 — Scaffold replaced
 Phase 6 items are always `○` — the agent can't know when the user considers their own logic "done". Everything else is checkable from the repo and AWS state.
 
 If any Phase 1–5 item is `○`, do not declare setup complete. Identify the first incomplete item and offer to continue from there.
+
+---
+
+## Common gotchas
+
+- **Branch protection is non-optional.** On 2026-04-26 a wholesale `git push` from a long-lived clone force-rewound `origin/development` by 11 merges in the upstream template repo. Recovery succeeded only because a parallel clone retained the pre-rewind HEAD locally. The exact failure was made possible by the gap that Phase 1.5 closes — `development` had no protection at the time, so the force-push was accepted by GitHub. The SEC-1 incident (#15) and the corresponding remediation issue (#50) are the canonical references; ADR-0008 captures the W1–W7 push-discipline rules layered on top of the branch protection. Apply Phase 1.5 to every fork before opening a single PR — it is not optional and must not be deferred.
+- **`gh pr merge --auto` is silently a no-op without `allow_auto_merge=true`.** Phase 1.5's PATCH step turns this on. If you skip Phase 1.5, every `gh pr merge --auto --squash` call documented in CLAUDE.md will return success but never queue the merge — the PR sits open until a human merges it manually.
+- **`gh api -F field=` cannot pass JSON `null`.** The form silently degrades to an empty string, which the GitHub branch-protection API rejects. The `--input -` form with a heredoc is the only working syntax for `required_pull_request_reviews=null` and `restrictions=null`.

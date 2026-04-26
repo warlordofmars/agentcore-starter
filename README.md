@@ -86,6 +86,10 @@ uv run inv seed
 # Open http://localhost:5173?test_email=you@example.com
 ```
 
+## Development
+
+This repo uses a dual-branch model: `development` is the GitHub default branch (where feature/fix PRs land via squash merge) and `main` is release-only (where `release/vX.Y.Z` PRs land via merge commit, then are auto back-merged to `development` by CI). Both branches are protected behind the seven required CI status checks defined in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (`Lint & Type Check`, `Unit Tests`, `Integration Tests (DynamoDB Local)`, `Frontend Tests & Build`, `Coverage Report`, `Infra Synth`, `Security Audit`) with `strict=true` so the head SHA must be up-to-date with the base branch at merge time. The repository has `allow_auto_merge=true` enabled, so `gh pr merge --auto --squash --delete-branch` queues the PR for merge as soon as required checks pass. The expected branch-protection snapshot is checked in at [`infra/branch-protection.expected.json`](infra/branch-protection.expected.json); fresh forks should apply Phase 1.5 of the onboarding agent (`.claude/agents/onboarding.md`) to install the same protections before opening any PR.
+
 ## Contributing
 
 ```bash
