@@ -424,3 +424,94 @@ def test_universal_allowed_changelog_passes_in_files_to_touch_mode():
 """
     v = scope_check.evaluate(body, [], ["src/starter/foo.py", "CHANGELOG.md"])
     assert v.level == "PASS"
+
+
+# ── Issue #90 edge-case regression tests ──────────────────────────────────────
+
+
+def test_fix1_bare_top_level_file_with_extension_is_accepted():
+    """Issue #90 Fix 1: a bare token (no slash, no backticks) with a file
+    extension is accepted as a path. Previously only a hard-coded allowlist
+    of top-level files (CLAUDE.md, README.md, CHANGELOG.md) passed; new
+    top-level files like `tasks.py` or `pyproject.toml` were silently
+    dropped, causing false FAILs for legitimate diffs."""
+    body = """## Files to touch
+
+- Edit: tasks.py
+- New: pyproject.toml
+
+## Next
+"""
+    parsed = scope_check.parse_files_to_touch(body)
+    assert parsed is not None
+    assert "tasks.py" in parsed
+    assert "pyproject.toml" in parsed
+
+
+def test_fix1_bare_top_level_file_without_extension_is_rejected():
+    """Issue #90 Fix 1 documented edge case: tokens without `/` and without
+    a file extension (e.g. `Makefile`) still drop. Backticks are the
+    canonical workaround; this test pins the documented behaviour so the
+    docstring stays honest."""
+    body = """## Files to touch
+
+- Edit: Makefile
+
+## Next
+"""
+    parsed = scope_check.parse_files_to_touch(body)
+    assert parsed is not None
+    assert "Makefile" not in parsed
+    # Backticks remain the canonical workaround for extension-less files.
+    body_with_backticks = """## Files to touch
+
+- Edit: `Makefile`
+
+## Next
+"""
+    parsed_bt = scope_check.parse_files_to_touch(body_with_backticks)
+    assert parsed_bt == ["Makefile"]
+
+
+def test_fix2_pruned_areas_no_longer_mapped():
+    """Issue #90 Fix 2: ground-truth taxonomy. Pruned BOUNDED_AREA_GLOBS
+    keys (`mcp`, `sdk`) and pruned META_AREAS members (`compliance`,
+    `marketing`, etc.) must no longer resolve. An issue carrying only a
+    pruned label falls through to WARN, exposing it to issue-creation-time
+    enforcement instead of being silently swept under a dead mapping."""
+    # Pruned bounded areas
+    assert "mcp" not in scope_check.BOUNDED_AREA_GLOBS
+    assert "sdk" not in scope_check.BOUNDED_AREA_GLOBS
+    # Pruned meta areas
+    for pruned in (
+        "compliance",
+        "marketing",
+        "growth",
+        "seo",
+        "design",
+        "ops",
+        "performance",
+        "ux",
+        "a11y",
+    ):
+        assert pruned not in scope_check.META_AREAS, f"{pruned!r} should be pruned"
+    # An issue with only a pruned area label falls through to None (WARN).
+    assert scope_check.area_label_paths(["mcp", "priority:p2"]) is None
+    assert scope_check.area_label_paths(["compliance", "priority:p2"]) is None
+
+
+def test_fix2_kept_areas_still_resolve():
+    """Issue #90 Fix 2: the kept area labels (`api`, `auth`, `infra`, `ui`,
+    `documentation`, `ci`) must still resolve to their globs after the
+    prune. Live meta-areas (`dx`, `security`, `reliability`,
+    `observability`) must still trigger the meta-area WARN fall-through."""
+    # Bounded areas still map.
+    for area in ("api", "auth", "infra", "ui", "documentation", "ci"):
+        assert area in scope_check.BOUNDED_AREA_GLOBS, f"{area!r} should still map"
+    api_globs = scope_check.area_label_paths(["api", "priority:p2"])
+    assert api_globs is not None
+    assert any(g.startswith("src/starter/api/") for g in api_globs)
+    # Live meta-areas still WARN-fall-through.
+    for meta in ("dx", "security", "reliability", "observability"):
+        assert meta in scope_check.META_AREAS, f"{meta!r} should still be a meta-area"
+        assert scope_check.area_label_paths([meta, "priority:p2"]) is None
