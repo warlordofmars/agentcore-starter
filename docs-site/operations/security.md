@@ -32,11 +32,12 @@ explicitly populates the list.
 
 ## Origin verification (CloudFront → Lambda)
 
-CloudFront injects a shared secret on every request to the Lambda
-Function URL via the `X-Origin-Verify` header. The Lambda middleware
-rejects requests that do not present the expected value, so the
-public Function URL cannot be hit directly to bypass CloudFront's
-WAF, geo-restrictions, and CSP headers.
+In prod, CloudFront injects a shared secret on every request to the
+Lambda Function URL via the `X-Origin-Verify` header. When that
+header injection is enabled, the Lambda middleware rejects requests
+that do not present the expected value, so the public Function URL
+cannot be hit directly to bypass CloudFront's WAF,
+geo-restrictions, and CSP headers.
 
 | Field | Value |
 | --- | --- |
@@ -50,14 +51,17 @@ WAF, geo-restrictions, and CSP headers.
 
 ### Current behaviour
 
-The middleware is enforcing only when **all three** of the following
-are true:
+The middleware actively verifies the header only when **both** of the
+following are true:
 
 1. `STARTER_ORIGIN_VERIFY_PARAM` (or `STARTER_ORIGIN_VERIFY_SECRET`)
    is set in the Lambda environment.
 2. The resolved value is **not** the literal placeholder
    `CHANGE_ME_ON_FIRST_DEPLOY`.
-3. The incoming `x-origin-verify` header matches that value.
+
+When those conditions are met, the request is rejected if the incoming
+`x-origin-verify` header does **not** match the resolved value. A
+matching header is the success case and the request is allowed through.
 
 The CDK stack sets `STARTER_ORIGIN_VERIFY_PARAM` in **every**
 environment, but CloudFront only injects the `X-Origin-Verify`
@@ -76,11 +80,14 @@ The current resolver in `src/starter/auth/tokens.py`
 (`_origin_verify_secret`) also returns `None` on any SSM exception
 (missing parameter, IAM denial, network error). When `None` is
 returned, the middleware fails the first condition of its check and
-allows the request through — so a transient SSM outage in prod
-silently degrades to "no origin verification" until the Lambda is
-bounced. Issue #16 will replace this fail-open behaviour with a
-startup-time failure when the parameter is configured but cannot be
-read.
+allows the request through. Because `_origin_verify_secret()` is
+wrapped in `functools.lru_cache(maxsize=1)`, this fail-open state
+only happens for a given Lambda execution environment if its first
+secret read hits that exception path and caches `None`; if the secret
+was already read successfully, later transient SSM outages do not
+disable enforcement for that warm process. Issue #16 will replace
+this fail-open behaviour with a startup-time failure when the
+parameter is configured but cannot be read.
 
 ### Rotation procedure
 
