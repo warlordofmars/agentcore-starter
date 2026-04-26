@@ -119,9 +119,22 @@ The template expects a dual-branch model (`development` is the GitHub default; `
 
 **Use the JSON-input form (`gh api --input -`).** The `-F field=` shorthand silently passes empty strings instead of JSON `null` for the `required_pull_request_reviews` and `restrictions` fields, and the API rejects empty strings. The form below is the working syntax.
 
+**`development` must exist before the PATCH runs.** A fresh fork (or a repo created from this template without "Include all branches" ticked) ships with `main` only. Setting `default_branch=development` on a repo where the branch doesn't exist is rejected by the API, and the subsequent PUT to `/branches/development/protection` would fail too. Step 0 below creates `development` from `main` if it's missing — it's a no-op when the branch already exists.
+
 ```bash
 # Resolve the fork's owner/repo slug
 REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+
+# Step 0 — ensure `development` exists (no-op if already present)
+if ! gh api "/repos/$REPO/branches/development" --silent 2>/dev/null; then
+  MAIN_SHA=$(gh api "/repos/$REPO/branches/main" --jq .commit.sha)
+  gh api -X POST "/repos/$REPO/git/refs" \
+    -f ref="refs/heads/development" \
+    -f sha="$MAIN_SHA"
+  echo "Created development from main at $MAIN_SHA"
+else
+  echo "development already exists — skipping create"
+fi
 
 # Step 1 — repo merge settings (MUST run first)
 # All six fields tracked by the snapshot are set explicitly so the post-PATCH
