@@ -170,7 +170,10 @@ done
 
 The snapshot at `infra/branch-protection.expected.json` is the source of truth. It is a verbatim capture of the GitHub API response shape, so fields that the API omits when null (notably `required_pull_request_reviews` and `restrictions` when neither is configured) are absent from the snapshot — `jq .field` returns `null` for absent fields, which is the comparison contract: an absent snapshot field equals a `null` live field.
 
-The diff filter below covers every field set by Phase 1.5's PATCH and PUT plus every protection sub-setting that the snapshot records. URL fields (`url`, `contexts_url`, `required_status_checks.url`, `required_signatures.url`) embed the upstream `warlordofmars/agentcore-starter` slug and are excluded — they are not portable across forks.
+The diff filter below covers every field set by Phase 1.5's PATCH and PUT plus every protection sub-setting that the snapshot records, with two intentional exclusions:
+
+- **URL fields** (`url`, `contexts_url`, `required_status_checks.url`, `required_signatures.url`) embed the upstream `warlordofmars/agentcore-starter` slug and are not portable across forks.
+- **`required_status_checks.checks`** (the `[{context, app_id}]` array) is excluded because `contexts` and `checks[].context` are derived from the same PUT input — comparing `contexts` covers the load-bearing semantics. The `app_id` value is the GitHub Apps installation ID for the GitHub Actions app (15368), which is the same across forks but adds noise without adding signal.
 
 ```bash
 EXPECTED=infra/branch-protection.expected.json
