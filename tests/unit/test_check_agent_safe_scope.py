@@ -448,6 +448,34 @@ def test_fix1_bare_top_level_file_with_extension_is_accepted():
     assert "pyproject.toml" in parsed
 
 
+def test_fix1_prose_fragments_with_dots_are_not_treated_as_paths():
+    """Issue #90 Fix 1 hardening: tokens with non-path characters (parens,
+    quotes, etc.) must NOT pass the heuristic, even if they end in
+    `\\.\\w+`. Without the path-safe character filter, fragments like
+    `(e.g.` or `v1.0)` would be accepted as phantom paths, then force a
+    false FAIL because no diff file matches them. Realistic example:
+        - Edit: src/foo.py (e.g. for handling auth)"""
+    body = """## Files to touch
+
+- Edit: src/foo.py (e.g. for handling auth)
+- Edit: src/bar.py and similar files (v1.0)
+
+## Next
+"""
+    parsed = scope_check.parse_files_to_touch(body)
+    assert parsed is not None
+    # Real paths still picked up.
+    assert "src/foo.py" in parsed
+    assert "src/bar.py" in parsed
+    # Prose fragments must NOT appear.
+    for token in parsed:
+        assert "(" not in token, f"prose fragment {token!r} leaked through"
+        assert ")" not in token, f"prose fragment {token!r} leaked through"
+    # Specific common abbreviations that previously slipped through.
+    assert not any("e.g" in t for t in parsed)
+    assert not any(t.startswith("v1.") for t in parsed)
+
+
 def test_fix1_bare_top_level_file_without_extension_is_rejected():
     """Issue #90 Fix 1 documented edge case: tokens without `/` and without
     a file extension (e.g. `Makefile`) still drop. Backticks are the

@@ -134,8 +134,11 @@ def parse_files_to_touch(body: str) -> list[str] | None:
     Bullets containing backtick-quoted tokens are preferred — backticks are
     the unambiguous, canonical form for path markers. Bullets without
     backticks fall through to a tokenisation pass that accepts a token as a
-    path if it either contains `/` or ends in a file extension (matching
-    `\\.\\w+$`).
+    path if it (1) consists only of path-safe characters
+    (`[\\w./@\\-+]`) AND (2) either contains `/` or ends in a file
+    extension (matching `\\.\\w+$`). The path-safe character filter rejects
+    prose fragments like `(e.g.` or `done.` that would otherwise match the
+    extension regex and produce phantom paths.
 
     Edge case: bare top-level files with no extension (e.g. `Makefile`) are
     NOT picked up by the no-backtick fallback. The canonical workaround is
@@ -181,10 +184,18 @@ def parse_files_to_touch(body: str) -> list[str] | None:
         # Tokenise the bullet on whitespace + common conjunctions/punctuation
         # so a bullet like `- Edit: src/a.py and src/b.py` produces two paths,
         # not one mashed-together string. Each token is then accepted only if
-        # it looks like a path (has a `/` or ends in a file extension).
+        # it looks like a path (has a `/` or ends in a file extension) AND
+        # consists of path-safe characters only — that filter rejects prose
+        # fragments like `(e.g.` or `done.` that would otherwise match the
+        # extension regex and produce phantom paths the diff can't satisfy.
         for raw_token in re.split(r"[\s,]+|\band\b", cleaned):
             token = raw_token.strip().rstrip(",.;")
             if not token:
+                continue
+            # Path-safe character filter: only word chars, dot, slash, hyphen,
+            # plus, at-sign, underscore (already in \w). Anything else (parens,
+            # quotes, colons, brackets) marks the token as prose, not a path.
+            if not re.fullmatch(r"[\w./@\-+]+", token):
                 continue
             # A token looks like a path if it contains `/` OR ends in a file
             # extension. Tokens with no extension and no `/` (e.g. `Makefile`)
