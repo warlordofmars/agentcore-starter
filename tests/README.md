@@ -12,10 +12,17 @@ tests/
 │   ├── test_api.py
 │   └── test_oauth.py
 └── e2e/               # Against the deployed AWS stack
-    ├── conftest.py        # live_token fixture (DCR + PKCE)
-    ├── test_auth_e2e.py
-    └── test_ui_e2e.py     # Playwright
+    ├── __init__.py
+    └── conftest.py        # Shared fixtures (e.g. live_admin_token)
 ```
+
+> **Note:** The per-suite e2e files (`test_auth_e2e.py`, `test_mcp_e2e.py`,
+> `test_admin_e2e.py`, `test_ui_e2e.py`, `test_docs_e2e.py`,
+> `test_dashboard_e2e.py`) were removed during the #47-era scaffolding
+> strip-down and have not yet been reauthored against the current API/UI
+> surface. The CI `e2e-dev` job currently runs a single curl smoke check
+> against the deployed dev API's `/health` endpoint instead. Reauthoring
+> proper e2e suites is tracked separately.
 
 ## Unit tests
 
@@ -72,7 +79,8 @@ Run against the **deployed AWS stack**. Require valid Lambda Function URLs and a
 | Variable | Required by | Description |
 |---|---|---|
 | `STARTER_API_URL` | all e2e | API Lambda Function URL |
-| `STARTER_UI_URL` | `test_ui_e2e.py` | CloudFront UI URL |
+| `STARTER_UI_URL` | UI Playwright suites (when restored) | CloudFront UI URL |
+| `STARTER_ADMIN_EMAIL` | admin/dashboard suites (when restored) | Admin email used by the bypass login |
 
 All can be found in the CloudFormation stack outputs:
 
@@ -84,26 +92,25 @@ aws cloudformation describe-stacks --stack-name AgentCoreStarterStack-dev \
 ### Run e2e tests
 
 ```bash
-# Auth tests
-uv run pytest tests/e2e/test_auth_e2e.py -v
-
-# UI tests (Playwright — requires Chromium)
+# UI / Playwright suites (when restored — requires Chromium)
 uv run playwright install chromium --with-deps
-uv run pytest tests/e2e/test_ui_e2e.py -v
 
-# All e2e
+# All e2e (currently only conftest fixtures; no test files yet)
 uv run pytest tests/e2e -v
 ```
 
 ### Token management
 
-E2E tests **self-issue tokens** via the `live_token` fixture in `conftest.py`. It performs a full DCR + PKCE flow against `STARTER_API_URL` at session start — no pre-issued token needed.
+The shared `live_admin_token` fixture in `conftest.py` issues a management
+JWT via the Google auth bypass (`/auth/login?test_email=`). It skips when
+`STARTER_API_URL` or `STARTER_ADMIN_EMAIL` is unset, and when the bypass
+is not enabled on the target environment.
 
 ### Skip behaviour
 
-Tests skip gracefully when the required env vars are not set:
-- `test_auth_e2e.py` — skips if `STARTER_API_URL` unset
-- `test_ui_e2e.py` — skips if `STARTER_UI_URL` unset
+Tests skip gracefully when the required env vars are not set — each suite
+declares its own dependencies on `STARTER_API_URL`, `STARTER_UI_URL`, or
+`STARTER_ADMIN_EMAIL` as appropriate.
 
 ## CI pipeline
 
