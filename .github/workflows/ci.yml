@@ -632,7 +632,7 @@ jobs:
         env:
           STARTER_API_URL: ${{ needs.deploy-dev.outputs.api_url }}
         run: |
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$STARTER_API_URL/health")
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${STARTER_API_URL%/}/health")
           echo "Health check status: $STATUS"
           [ "$STATUS" = "200" ] || (echo "Dev health check failed!" && exit 1)
 
@@ -806,7 +806,7 @@ jobs:
         env:
           STARTER_API_URL: ${{ needs.deploy-prod.outputs.api_url }}
         run: |
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$STARTER_API_URL/health")
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${STARTER_API_URL%/}/health")
           echo "Health check status: $STATUS"
           [ "$STATUS" = "200" ] || (echo "Prod health check failed!" && exit 1)
 
