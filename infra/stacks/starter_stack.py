@@ -287,11 +287,6 @@ class AgentCoreStarterStack(cdk.Stack):
             "BEDROCK_MODEL_ID": "anthropic.claude-sonnet-4-6",
         }
 
-        # In non-prod environments, bypass Google OAuth so automated e2e tests
-        # can complete the PKCE flow without a real Google account.
-        if not is_prod:
-            common_env["STARTER_BYPASS_GOOGLE_AUTH"] = "1"
-
         # Tag every resource with the deployed version for operational visibility.
         cdk.Tags.of(self).add("version", app_version)
 
