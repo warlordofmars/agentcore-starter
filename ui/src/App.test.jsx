@@ -227,6 +227,12 @@ describe("AppShell", () => {
     expect(usersBtn.className).toContain("border-b-brand");
   });
 
+  it("clicking the desktop Users tab keeps UsersPanel mounted", async () => {
+    await act(async () => render(<App />));
+    fireEvent.click(screen.getByText("Users"));
+    expect(screen.getByTestId("users-panel")).toBeTruthy();
+  });
+
   it("version in footer links to /changelog", async () => {
     await act(async () => render(<App />));
     await waitFor(() => expect(screen.getByText("AgentCore Starter 1.2.3")).toBeTruthy());

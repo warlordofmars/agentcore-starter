@@ -87,7 +87,9 @@ function AppShell() {
           <span className="font-bold text-xl tracking-wide">AgentCore Starter</span>
         </button>
 
-        {/* Desktop tab nav */}
+        {/* Desktop tab nav — single active tab today; the active/inactive
+            split returns when the gutted Dashboard / additional admin
+            surfaces ship (see #35). */}
         <nav className="hidden md:flex gap-1 flex-1">
           {tabs.map((t) => (
             <Button
@@ -96,9 +98,7 @@ function AppShell() {
               variant="ghost"
               size="sm"
               onClick={() => switchTab(t.id)}
-              className={`text-sm border-b-2 rounded-none pb-0 ${
-                tab === t.id ? "border-b-brand" : "border-b-transparent"
-              }`}
+              className="text-sm border-b-2 rounded-none pb-0 border-b-brand"
             >
               {t.label}
             </Button>
@@ -143,16 +143,14 @@ function AppShell() {
             data-testid="mobile-nav"
             className="absolute top-14 left-0 right-0 bg-navy border-t border-white/10 z-50"
           >
+            {/* Mobile tabs — single active tab today; the active/inactive
+                split returns alongside the desktop nav split. */}
             {tabs.map((t) => (
               <button
                 key={t.id}
                 data-tab-id={t.id}
                 type="button"
-                className={`w-full text-left px-6 py-3 text-sm text-white bg-transparent cursor-pointer font-[inherit] min-h-[44px] hover:bg-white/5 border-l-2 ${
-                  tab === t.id
-                    ? "font-semibold border-l-brand"
-                    : "border-l-transparent"
-                }`}
+                className="w-full text-left px-6 py-3 text-sm text-white bg-transparent cursor-pointer font-[inherit] min-h-[44px] hover:bg-white/5 border-l-2 font-semibold border-l-brand"
                 onClick={() => { switchTab(t.id); setMenuOpen(false); }}
               >
                 {t.label}
