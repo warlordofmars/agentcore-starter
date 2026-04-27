@@ -43,42 +43,6 @@ async function request(method, path, body) {
 }
 
 export const api = {
-  // Memories
-  listMemories: (tag, { limit = 50, cursor } = {}) => {
-    const params = new URLSearchParams();
-    if (tag) params.set("tag", tag);
-    params.set("limit", limit);
-    if (cursor) params.set("cursor", cursor);
-    return request("GET", `/api/memories?${params}`);
-  },
-  searchMemories: (query, { limit = 50 } = {}) => {
-    const params = new URLSearchParams({ search: query, limit });
-    return request("GET", `/api/memories?${params}`);
-  },
-  getMemory: (id) => request("GET", `/api/memories/${id}`),
-  createMemory: (body) => request("POST", "/api/memories", body),
-  updateMemory: (id, body) => request("PATCH", `/api/memories/${id}`, body),
-  deleteMemory: (id) => request("DELETE", `/api/memories/${id}`),
-  listMemoryVersions: (id) => request("GET", `/api/memories/${id}/versions`),
-  restoreMemoryVersion: (id, versionTimestamp) =>
-    request("POST", `/api/memories/${id}/restore?version_timestamp=${encodeURIComponent(versionTimestamp)}`),
-  getMemoryContent: async (id) => {
-    const token = getToken();
-    const headers = {};
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${BASE}/api/memories/${id}/content`, { headers });
-    if (res.status === 401) {
-      localStorage.removeItem("starter_mgmt_token");
-      globalThis.location.replace("/");
-      return null;
-    }
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(err.detail ?? "Failed to fetch content");
-    }
-    return res.blob();
-  },
-
   // Clients
   listClients: ({ limit = 50, cursor } = {}) => {
     const params = new URLSearchParams({ limit });
@@ -89,23 +53,11 @@ export const api = {
   createClient: (body) => request("POST", "/api/clients", body),
   deleteClient: (id) => request("DELETE", `/api/clients/${id}`),
 
-  // Stats & Activity
-  getStats: () => request("GET", "/api/stats"),
+  // Activity
   getActivity: (days = 7, { limit = 100 } = {}) =>
     request("GET", `/api/activity?days=${days}&limit=${limit}`),
   getAccountStats: (windowDays = 90) =>
     request("GET", `/api/account/stats?window=${windowDays}`),
-
-  // Admin
-  getMetrics: (period = "24h") => request("GET", `/api/admin/metrics?period=${period}`),
-  getCosts: () => request("GET", "/api/admin/costs"),
-  getAlarms: () => request("GET", "/api/admin/alarms"),
-  getLogs: ({ group = "all", window = "1h", filter = "", nextToken } = {}) => {
-    const params = new URLSearchParams({ group, window });
-    if (filter) params.set("filter", filter);
-    if (nextToken) params.set("next_token", nextToken);
-    return request("GET", `/api/admin/logs?${params}`);
-  },
 
   // Users
   getMe: () => request("GET", "/api/users/me"),

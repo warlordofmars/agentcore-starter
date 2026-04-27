@@ -46,49 +46,49 @@ describe("api", () => {
   it("adds Authorization header when token is in localStorage", async () => {
     localStorage.setItem("starter_mgmt_token", "tok123");
     mockOk({ items: [] });
-    await api.listMemories();
+    await api.listClients();
     expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe("Bearer tok123");
   });
 
   it("omits Authorization header when no token", async () => {
     mockOk({ items: [] });
-    await api.listMemories();
+    await api.listClients();
     expect(fetchMock.mock.calls[0][1].headers.Authorization).toBeUndefined();
   });
 
   it("sends JSON body on POST requests", async () => {
-    mockOk({ memory_id: "1", key: "k", value: "v", tags: [] });
-    await api.createMemory({ key: "k", value: "v", tags: [] });
+    mockOk({ client_id: "c1" });
+    await api.createClient({ client_name: "App" });
     const call = fetchMock.mock.calls[0];
     expect(call[1].method).toBe("POST");
-    expect(call[1].body).toBe(JSON.stringify({ key: "k", value: "v", tags: [] }));
+    expect(call[1].body).toBe(JSON.stringify({ client_name: "App" }));
   });
 
   it("omits body on GET requests", async () => {
     mockOk({ items: [] });
-    await api.listMemories();
+    await api.listClients();
     expect(fetchMock.mock.calls[0][1].body).toBeUndefined();
   });
 
   it("throws error with detail on non-ok response", async () => {
     mockErr("Something bad");
-    await expect(api.listMemories()).rejects.toThrow("Something bad");
+    await expect(api.listClients()).rejects.toThrow("Something bad");
   });
 
   it("attaches the HTTP status to the thrown error so callers can branch on 429", async () => {
-    mockErr("Memory quota exceeded.", 429);
+    mockErr("Quota exceeded.", 429);
     try {
-      await api.createMemory({ key: "k", value: "v", tags: [] });
+      await api.createClient({ client_name: "App" });
       throw new Error("should have thrown");
     } catch (err) {
-      expect(err.message).toBe("Memory quota exceeded.");
+      expect(err.message).toBe("Quota exceeded.");
       expect(err.status).toBe(429);
     }
   });
 
   it("falls back to statusText when error json has no detail", async () => {
     mockErr(undefined);
-    await expect(api.listMemories()).rejects.toThrow("Request failed");
+    await expect(api.listClients()).rejects.toThrow("Request failed");
   });
 
   it("falls back to statusText when error json parse fails", async () => {
@@ -98,83 +98,13 @@ describe("api", () => {
       statusText: "Internal Server Error",
       json: () => Promise.reject(new Error("parse fail")),
     });
-    await expect(api.listMemories()).rejects.toThrow("Internal Server Error");
+    await expect(api.listClients()).rejects.toThrow("Internal Server Error");
   });
 
   it("returns null on 204 response", async () => {
     fetchMock.mockResolvedValue({ ok: true, status: 204 });
-    const result = await api.deleteMemory("id1");
+    const result = await api.deleteClient("c1");
     expect(result).toBeNull();
-  });
-
-  // ---------------------------------------------------------------------------
-  // listMemories
-  // ---------------------------------------------------------------------------
-
-  it("listMemories without tag or cursor", async () => {
-    mockOk({ items: [] });
-    await api.listMemories();
-    expect(fetchMock.mock.calls[0][0]).toMatch(/\/api\/memories\?limit=50/);
-    expect(fetchMock.mock.calls[0][0]).not.toContain("tag=");
-    expect(fetchMock.mock.calls[0][0]).not.toContain("cursor=");
-  });
-
-  it("listMemories with tag", async () => {
-    mockOk({ items: [] });
-    await api.listMemories("mytag");
-    expect(fetchMock.mock.calls[0][0]).toContain("tag=mytag");
-  });
-
-  it("listMemories with cursor", async () => {
-    mockOk({ items: [] });
-    await api.listMemories(undefined, { cursor: "abc123" });
-    expect(fetchMock.mock.calls[0][0]).toContain("cursor=abc123");
-  });
-
-  it("listMemories with custom limit", async () => {
-    mockOk({ items: [] });
-    await api.listMemories(undefined, { limit: 10 });
-    expect(fetchMock.mock.calls[0][0]).toContain("limit=10");
-  });
-
-  it("searchMemories passes search param", async () => {
-    mockOk({ items: [], count: 0 });
-    await api.searchMemories("hello world");
-    expect(fetchMock.mock.calls[0][0]).toContain("search=hello+world");
-    expect(fetchMock.mock.calls[0][0]).toContain("limit=50");
-  });
-
-  it("searchMemories with custom limit", async () => {
-    mockOk({ items: [], count: 0 });
-    await api.searchMemories("q", { limit: 10 });
-    expect(fetchMock.mock.calls[0][0]).toContain("limit=10");
-  });
-
-  // ---------------------------------------------------------------------------
-  // Memory CRUD
-  // ---------------------------------------------------------------------------
-
-  it("getMemory calls correct endpoint", async () => {
-    mockOk({ memory_id: "m1" });
-    await api.getMemory("m1");
-    expect(fetchMock.mock.calls[0][0]).toContain("/api/memories/m1");
-    expect(fetchMock.mock.calls[0][1].method).toBe("GET");
-  });
-
-  it("updateMemory sends PATCH with body", async () => {
-    mockOk({ memory_id: "m1", value: "new" });
-    await api.updateMemory("m1", { value: "new" });
-    const call = fetchMock.mock.calls[0];
-    expect(call[0]).toContain("/api/memories/m1");
-    expect(call[1].method).toBe("PATCH");
-    expect(JSON.parse(call[1].body)).toEqual({ value: "new" });
-  });
-
-  it("deleteMemory calls DELETE", async () => {
-    fetchMock.mockResolvedValue({ ok: true, status: 204 });
-    await api.deleteMemory("m2");
-    expect(fetchMock.mock.calls[0][1].method).toBe("DELETE");
-    expect(fetchMock.mock.calls[0][0]).toContain("/api/memories/m2");
   });
 
   // ---------------------------------------------------------------------------
@@ -219,14 +149,8 @@ describe("api", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Stats & Activity
+  // Activity & Account stats
   // ---------------------------------------------------------------------------
-
-  it("getStats calls /api/stats", async () => {
-    mockOk({ total_memories: 5 });
-    await api.getStats();
-    expect(fetchMock.mock.calls[0][0]).toContain("/api/stats");
-  });
 
   it("getAccountStats passes window through", async () => {
     mockOk({ window_days: 30 });
@@ -294,25 +218,25 @@ describe("api", () => {
   });
 
   it("getUserStats calls GET /api/users/{id}/stats", async () => {
-    mockOk({ user_id: "u1", memory_count: 3, client_count: 1 });
+    mockOk({ user_id: "u1" });
     await api.getUserStats("u1");
     expect(fetchMock.mock.calls[0][0]).toContain("/api/users/u1/stats");
     expect(fetchMock.mock.calls[0][1].method).toBe("GET");
   });
 
   it("getUserLimits calls GET /api/users/{id}/limits", async () => {
-    mockOk({ user_id: "u1", memory_limit: null, storage_bytes_limit: null, effective_memory_limit: 500, effective_storage_bytes_limit: 104857600 });
+    mockOk({ user_id: "u1" });
     await api.getUserLimits("u1");
     expect(fetchMock.mock.calls[0][0]).toContain("/api/users/u1/limits");
     expect(fetchMock.mock.calls[0][1].method).toBe("GET");
   });
 
   it("updateUserLimits calls PUT /api/users/{id}/limits with body", async () => {
-    mockOk({ user_id: "u1", memory_limit: 100, storage_bytes_limit: null, effective_memory_limit: 100, effective_storage_bytes_limit: 104857600 });
-    await api.updateUserLimits("u1", { memory_limit: 100, storage_bytes_limit: null });
+    mockOk({ user_id: "u1" });
+    await api.updateUserLimits("u1", { foo: "bar" });
     expect(fetchMock.mock.calls[0][0]).toContain("/api/users/u1/limits");
     expect(fetchMock.mock.calls[0][1].method).toBe("PUT");
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ memory_limit: 100, storage_bytes_limit: null });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ foo: "bar" });
   });
 
   it("listApiKeys calls GET /api/keys", async () => {
@@ -324,10 +248,10 @@ describe("api", () => {
 
   it("createApiKey calls POST /api/keys with name and scope", async () => {
     mockOk({ key_id: "k1", plaintext_key: "starter_sk_abc" });
-    await api.createApiKey("My Key", "memories:read");
+    await api.createApiKey("My Key", "users:read");
     expect(fetchMock.mock.calls[0][1].method).toBe("POST");
     expect(fetchMock.mock.calls[0][0]).toContain("/api/keys");
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ name: "My Key", scope: "memories:read" });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ name: "My Key", scope: "users:read" });
   });
 
   it("deleteApiKey calls DELETE /api/keys/{id}", async () => {
@@ -346,78 +270,6 @@ describe("api", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Admin
-  // ---------------------------------------------------------------------------
-
-  it("getMetrics calls GET /api/admin/metrics with default period", async () => {
-    mockOk({ period: "24h", metrics: {} });
-    await api.getMetrics();
-    expect(fetchMock.mock.calls[0][0]).toContain("/api/admin/metrics?period=24h");
-  });
-
-  it("getMetrics passes custom period", async () => {
-    mockOk({ period: "7d", metrics: {} });
-    await api.getMetrics("7d");
-    expect(fetchMock.mock.calls[0][0]).toContain("period=7d");
-  });
-
-  it("getCosts calls GET /api/admin/costs", async () => {
-    mockOk({ monthly: [] });
-    await api.getCosts();
-    expect(fetchMock.mock.calls[0][0]).toContain("/api/admin/costs");
-  });
-
-  it("getAlarms calls GET /api/admin/alarms", async () => {
-    mockOk({ alarms: [] });
-    await api.getAlarms();
-    expect(fetchMock.mock.calls[0][0]).toContain("/api/admin/alarms");
-  });
-
-  it("getLogs with defaults calls correct endpoint", async () => {
-    mockOk({ events: [], next_token: null });
-    await api.getLogs();
-    expect(fetchMock.mock.calls[0][0]).toContain("/api/admin/logs");
-    expect(fetchMock.mock.calls[0][0]).toContain("group=all");
-    expect(fetchMock.mock.calls[0][0]).toContain("window=1h");
-  });
-
-  it("getLogs with filter appends filter param", async () => {
-    mockOk({ events: [], next_token: null });
-    await api.getLogs({ group: "mcp", window: "3h", filter: "ERROR" });
-    expect(fetchMock.mock.calls[0][0]).toContain("filter=ERROR");
-  });
-
-  it("getLogs omits filter when empty", async () => {
-    mockOk({ events: [], next_token: null });
-    await api.getLogs({ group: "mcp", window: "1h", filter: "" });
-    expect(fetchMock.mock.calls[0][0]).not.toContain("filter=");
-  });
-
-  it("getLogs with nextToken appends next_token param", async () => {
-    mockOk({ events: [], next_token: null });
-    await api.getLogs({ nextToken: "tok123" });
-    expect(fetchMock.mock.calls[0][0]).toContain("next_token=tok123");
-  });
-
-  // ---------------------------------------------------------------------------
-  // Version history endpoints
-  // ---------------------------------------------------------------------------
-
-  it("listMemoryVersions calls correct URL", async () => {
-    mockOk([]);
-    await api.listMemoryVersions("mem-123");
-    expect(fetchMock.mock.calls[0][0]).toContain("/api/memories/mem-123/versions");
-  });
-
-  it("restoreMemoryVersion calls correct URL with encoded timestamp", async () => {
-    mockOk({});
-    await api.restoreMemoryVersion("mem-123", "20260412T120000");
-    expect(fetchMock.mock.calls[0][0]).toContain(
-      "/api/memories/mem-123/restore?version_timestamp=20260412T120000",
-    );
-  });
-
-  // ---------------------------------------------------------------------------
   // 401 handling — clears token and redirects
   // ---------------------------------------------------------------------------
 
@@ -425,7 +277,7 @@ describe("api", () => {
     storage["starter_mgmt_token"] = "old-token";
     vi.stubGlobal("location", { replace: vi.fn() });
     fetchMock.mockResolvedValue({ ok: false, status: 401, json: () => Promise.resolve({}) });
-    const result = await api.getStats();
+    const result = await api.listClients();
     expect(result).toBeNull();
     expect(storage["starter_mgmt_token"]).toBeUndefined();
     expect(window.location.replace).toHaveBeenCalledWith("/");
@@ -525,74 +377,6 @@ describe("api", () => {
       json: () => Promise.resolve({}),
     });
     const result = await api.exportAccount();
-    expect(result).toBeNull();
-    expect(storage["starter_mgmt_token"]).toBeUndefined();
-    expect(replace).toHaveBeenCalledWith("/");
-  });
-
-  // ---------------------------------------------------------------------------
-  // getMemoryContent
-  // ---------------------------------------------------------------------------
-
-  it("getMemoryContent fetches memory content and returns blob", async () => {
-    const blob = new Blob([new Uint8Array([137, 80, 78, 71])], { type: "image/png" });
-    fetchMock.mockResolvedValue({
-      ok: true,
-      status: 200,
-      blob: () => Promise.resolve(blob),
-    });
-    const result = await api.getMemoryContent("mem-abc");
-    expect(fetchMock.mock.calls[0][0]).toContain("/api/memories/mem-abc/content");
-    expect(result).toBe(blob);
-  });
-
-  it("getMemoryContent sends Authorization header when token present", async () => {
-    storage["starter_mgmt_token"] = "user-token";
-    fetchMock.mockResolvedValue({
-      ok: true,
-      status: 200,
-      blob: () => Promise.resolve(new Blob()),
-    });
-    await api.getMemoryContent("mem-abc");
-    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe("Bearer user-token");
-  });
-
-  it("getMemoryContent throws on non-ok response with detail", async () => {
-    fetchMock.mockResolvedValue({
-      ok: false,
-      status: 409,
-      statusText: "Conflict",
-      json: () => Promise.resolve({ detail: "Memory has no S3 content" }),
-    });
-    await expect(api.getMemoryContent("mem-abc")).rejects.toThrow("Memory has no S3 content");
-  });
-
-  it("getMemoryContent throws fallback message when json has no detail field", async () => {
-    fetchMock.mockResolvedValue({
-      ok: false,
-      status: 500,
-      statusText: "Server Error",
-      json: () => Promise.resolve({}),
-    });
-    await expect(api.getMemoryContent("mem-abc")).rejects.toThrow("Failed to fetch content");
-  });
-
-  it("getMemoryContent throws generic message when json parse fails", async () => {
-    fetchMock.mockResolvedValue({
-      ok: false,
-      status: 500,
-      statusText: "Server Error",
-      json: () => Promise.reject(new Error("bad json")),
-    });
-    await expect(api.getMemoryContent("mem-abc")).rejects.toThrow("Server Error");
-  });
-
-  it("getMemoryContent clears token and redirects on 401", async () => {
-    storage["starter_mgmt_token"] = "old-token";
-    const replace = vi.fn();
-    vi.stubGlobal("location", { replace });
-    fetchMock.mockResolvedValue({ ok: false, status: 401 });
-    const result = await api.getMemoryContent("mem-abc");
     expect(result).toBeNull();
     expect(storage["starter_mgmt_token"]).toBeUndefined();
     expect(replace).toHaveBeenCalledWith("/");

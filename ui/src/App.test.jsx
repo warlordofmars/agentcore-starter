@@ -12,9 +12,6 @@ vi.mock("./components/AuthCallback.jsx", () => ({
 vi.mock("./components/UsersPanel.jsx", () => ({
   default: () => <div data-testid="users-panel" />,
 }));
-vi.mock("./components/Dashboard.jsx", () => ({
-  default: () => <div data-testid="dashboard" />,
-}));
 vi.mock("./components/EmptyState.jsx", () => ({
   default: ({ title }) => <div data-testid="empty-state">{title}</div>,
 }));
@@ -115,16 +112,14 @@ describe("AppShell", () => {
     expect(screen.getByText("AgentCore Starter")).toBeTruthy();
   });
 
-  it("renders Users and Dashboard tabs for admin", async () => {
+  it("renders Users tab for admin", async () => {
     await act(async () => render(<App />));
     expect(screen.getByText("Users")).toBeTruthy();
-    expect(screen.getByText("Dashboard")).toBeTruthy();
   });
 
   it("shows UsersPanel on initial render for admin", async () => {
     await act(async () => render(<App />));
     expect(screen.getByTestId("users-panel")).toBeTruthy();
-    expect(screen.queryByTestId("dashboard")).toBeNull();
   });
 
   it("shows EmptyState for non-admin user", async () => {
@@ -132,22 +127,6 @@ describe("AppShell", () => {
     await act(async () => render(<App />));
     expect(screen.getByTestId("empty-state")).toBeTruthy();
     expect(screen.queryByText("Users")).toBeNull();
-    expect(screen.queryByText("Dashboard")).toBeNull();
-  });
-
-  it("switches to Dashboard when Dashboard tab is clicked", async () => {
-    await act(async () => render(<App />));
-    fireEvent.click(screen.getByText("Dashboard"));
-    expect(screen.getByTestId("dashboard")).toBeTruthy();
-    expect(screen.queryByTestId("users-panel")).toBeNull();
-  });
-
-  it("switches back to UsersPanel when Users tab is clicked", async () => {
-    await act(async () => render(<App />));
-    fireEvent.click(screen.getByText("Dashboard"));
-    fireEvent.click(screen.getByText("Users"));
-    expect(screen.getByTestId("users-panel")).toBeTruthy();
-    expect(screen.queryByTestId("dashboard")).toBeNull();
   });
 
   it("shows LoginPage when no token is stored", async () => {
@@ -256,11 +235,11 @@ describe("AppShell", () => {
     expect(link.getAttribute("href")).toBe("/changelog");
   });
 
-  it("starter:switch-tab event switches the active tab", async () => {
+  it("starter:switch-tab event handler is registered without error", async () => {
     await act(async () => render(<App />));
     expect(screen.getByTestId("users-panel")).toBeTruthy();
-    act(() => window.dispatchEvent(new CustomEvent("starter:switch-tab", { detail: "dashboard" })));
-    expect(screen.getByTestId("dashboard")).toBeTruthy();
+    act(() => window.dispatchEvent(new CustomEvent("starter:switch-tab", { detail: "users" })));
+    expect(screen.getByTestId("users-panel")).toBeTruthy();
   });
 
   it("footer changelog link has hover:underline class", async () => {
@@ -289,15 +268,14 @@ describe("AppShell", () => {
     expect(screen.getByTestId("mobile-nav")).toBeTruthy();
   });
 
-  it("clicking tab in mobile nav switches panel and closes menu", async () => {
+  it("clicking tab in mobile nav closes the menu", async () => {
     await act(async () => render(<App />));
     fireEvent.click(screen.getByRole("button", { name: /toggle navigation/i }));
     const mobileNav = screen.getByTestId("mobile-nav");
     const mobileButtons = mobileNav.querySelectorAll("button[type='button']");
-    // Click Dashboard (second tab)
-    fireEvent.click(mobileButtons[1]);
+    fireEvent.click(mobileButtons[0]);
     expect(screen.queryByTestId("mobile-nav")).toBeNull();
-    expect(screen.getByTestId("dashboard")).toBeTruthy();
+    expect(screen.getByTestId("users-panel")).toBeTruthy();
   });
 
   it("mobile nav active tab has an orange left-border indicator", async () => {
@@ -308,6 +286,5 @@ describe("AppShell", () => {
     // Users is the default active tab
     expect(buttons[0].className).toContain("border-l-brand");
     expect(buttons[0].className.split(/\s+/)).not.toContain("bg-white/5");
-    expect(buttons[1].className).toContain("border-l-transparent");
   });
 });

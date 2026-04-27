@@ -4,7 +4,6 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from
 import { Menu, Moon, Sun, X } from "lucide-react";
 import { trackEvent, trackPageView } from "./analytics.js";
 import AuthCallback from "./components/AuthCallback.jsx";
-import Dashboard from "./components/Dashboard.jsx";
 import EmptyState from "./components/EmptyState.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import LoginPage from "./components/LoginPage.jsx";
@@ -19,7 +18,6 @@ const SWITCH_TAB_EVENT = "starter:switch-tab";
 
 const ADMIN_TABS = [
   { id: "users", label: "Users" },
-  { id: "dashboard", label: "Dashboard" },
 ];
 
 function parseToken(token) {
@@ -168,7 +166,6 @@ function AppShell() {
         {isAdmin ? (
           <>
             {tab === "users" && <UsersPanel />}
-            {tab === "dashboard" && <Dashboard />}
           </>
         ) : (
           <EmptyState
