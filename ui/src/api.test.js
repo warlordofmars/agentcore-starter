@@ -233,10 +233,11 @@ describe("api", () => {
 
   it("updateUserLimits calls PUT /api/users/{id}/limits with body", async () => {
     mockOk({ user_id: "u1" });
-    await api.updateUserLimits("u1", { foo: "bar" });
+    const body = { memory_limit: 100, storage_bytes_limit: 1048576 };
+    await api.updateUserLimits("u1", body);
     expect(fetchMock.mock.calls[0][0]).toContain("/api/users/u1/limits");
     expect(fetchMock.mock.calls[0][1].method).toBe("PUT");
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ foo: "bar" });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual(body);
   });
 
   it("listApiKeys calls GET /api/keys", async () => {
