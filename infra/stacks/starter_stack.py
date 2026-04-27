@@ -278,6 +278,9 @@ class AgentCoreStarterStack(cdk.Stack):
             "GOOGLE_CLIENT_SECRET_PARAM": google_client_secret_param.parameter_name,
             "ALLOWED_EMAILS_PARAM": allowed_emails_param.parameter_name,
             "STARTER_ORIGIN_VERIFY_PARAM": origin_verify_param.parameter_name,
+            # Operational SSM parameter — soft-warn check at startup logs if
+            # still set to the CHANGE_ME_ON_FIRST_DEPLOY placeholder.
+            "STARTER_ALARM_EMAIL_PARAM": alarm_email_param.parameter_name,
             # APP_VERSION is injected at deploy time via the APP_VERSION env var.
             # Falls back to "dev" for local synth/deploy without a version set.
             "APP_VERSION": app_version,
@@ -309,6 +312,9 @@ class AgentCoreStarterStack(cdk.Stack):
         google_client_secret_param.grant_read(api_role)
         allowed_emails_param.grant_read(api_role)
         origin_verify_param.grant_read(api_role)
+        # Soft-warn startup check needs to read the alarm-email parameter to
+        # detect the CHANGE_ME_ON_FIRST_DEPLOY placeholder.
+        alarm_email_param.grant_read(api_role)
         api_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["cloudwatch:GetMetricData", "cloudwatch:DescribeAlarms"],

@@ -68,6 +68,16 @@ def test_origin_verify_middleware_rejects_missing_header(monkeypatch):
     tokens._origin_verify_secret.cache_clear()
 
 
+def test_origin_verify_middleware_accepts_matching_header(monkeypatch):
+    from starter.auth import tokens
+
+    tokens._origin_verify_secret.cache_clear()
+    monkeypatch.setenv("STARTER_ORIGIN_VERIFY_SECRET", "super-secret")
+    resp = client.get("/health", headers={"x-origin-verify": "super-secret"})
+    assert resp.status_code == 200
+    tokens._origin_verify_secret.cache_clear()
+
+
 @pytest.mark.asyncio
 async def test_csp_report_legacy_format_returns_204():
     import json

@@ -26,9 +26,21 @@ from starter.logging_config import (
     new_request_id,
     set_request_context,
 )
+from starter.startup import (
+    validate_secrets_or_die,
+    warn_unrotated_observability_params,
+)
 
 configure_logging("agentcore-starter")
 logger = get_logger(__name__)
+
+# Fail-closed startup validation. Wired here at module import (not via
+# @app.on_event("startup")) so any unrotated security-critical SSM
+# parameter raises during AWS Lambda INIT and CloudFormation reports the
+# deploy as failed. Both hooks no-op outside Lambda — see
+# starter.startup for the placeholder check details.
+validate_secrets_or_die()
+warn_unrotated_observability_params()
 
 
 def _app_version() -> str:
@@ -95,16 +107,15 @@ async def _log_requests(request: Request, call_next):
 async def _verify_origin_secret(request: Request, call_next):
     """Reject requests missing the CloudFront X-Origin-Verify secret.
 
-    Disabled when STARTER_ORIGIN_VERIFY_PARAM is not set (local dev / non-prod).
+    Disabled when ``STARTER_ORIGIN_VERIFY_PARAM`` is not set (local dev /
+    non-prod). The placeholder-value short-circuit was removed — the
+    fail-closed startup check (:mod:`starter.startup`) guarantees the
+    secret is rotated before the Lambda will start.
     """
     from starter.auth.tokens import _origin_verify_secret
 
     expected = _origin_verify_secret()
-    if (
-        expected
-        and expected != "CHANGE_ME_ON_FIRST_DEPLOY"
-        and request.headers.get("x-origin-verify") != expected
-    ):
+    if expected and request.headers.get("x-origin-verify") != expected:
         from fastapi.responses import JSONResponse
 
         return JSONResponse(status_code=403, content={"detail": "Forbidden"})
