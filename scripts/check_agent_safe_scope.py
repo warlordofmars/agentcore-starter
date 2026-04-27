@@ -309,29 +309,46 @@ def _matches_any(path: str, globs: list[str]) -> bool:
 # always require explicit listing — preserves the property that the issue
 # body documents the real production-code surface of change.
 
-_JS_TS_EXTS = ("js", "jsx", "ts", "tsx")
-# Source filename pattern for Rule A. Must NOT already be a test file —
-# `<name>.<ext>` where `<name>` does not end with `.test`.
-_JS_TS_SOURCE_RE = re.compile(r"^(?P<name>.+?)\.(?P<ext>js|jsx|ts|tsx)$")
-# Python source filename pattern for Rule B. Must NOT already be a test
-# file — `<basename>.py` where `<basename>` does not start with `test_`.
-_PY_SOURCE_RE = re.compile(r"^(?P<basename>[^/]+)\.py$")
+_JS_TS_EXTS: tuple[str, ...] = ("js", "jsx", "ts", "tsx")
+# Source filename pattern for Rule A. The extension alternation is built
+# from `_JS_TS_EXTS` so the tuple is the single source of truth — extending
+# the rule to a new extension is a one-line change. Must NOT already be a
+# test file — `<name>.<ext>` where `<name>` does not end with `.test`.
+_JS_TS_SOURCE_RE = re.compile(
+    rf"^(?P<name>.+?)\.(?P<ext>{'|'.join(re.escape(ext) for ext in _JS_TS_EXTS)})$"
+)
+# Glob metacharacters — when present in a `## Files to touch` entry, that
+# entry is a wildcard, not a concrete source path; skip implicit derivation
+# to avoid widening scope to `tests/unit/test_*.py` (effectively all unit
+# tests). Concrete paths are the input contract for the implicit allowlist.
+_GLOB_METACHARS = re.compile(r"[*?\[]")
 
 
 def _implicit_test_paths(source_path: str) -> list[str]:
     """
-    Given a source path from `## Files to touch`, return the list of
-    co-located test paths (and snapshot paths) that should be implicitly
+    Given a concrete source path from `## Files to touch`, return the list
+    of co-located test paths (and snapshot paths) that should be implicitly
     accepted alongside it.
 
-    Returns an empty list when the source path is not a recognised source
-    file (e.g. `.md`, `.yml`, or a path that already looks like a test file
-    such as `foo.test.js` or `tests/unit/test_foo.py`).
+    Returns an empty list when:
+      - the source path is not a recognised source file (e.g. `.md`,
+        `.yml`),
+      - the path already looks like a test file (e.g. `foo.test.js` or
+        `tests/unit/test_foo.py` — forward-direction only),
+      - the entry contains glob metacharacters (`*`, `?`, `[`) — globs are
+        not concrete paths and would derive an over-broad implicit set
+        (e.g. `src/starter/**` would map to `tests/unit/test_**.py`).
     """
     derived: list[str] = []
 
     # Strip leading "./" if present; otherwise the path stays as-is.
     path = source_path.removeprefix("./")
+
+    # Glob entries are not concrete paths — skip them to avoid over-broad
+    # implicit derivations (a `*.py` entry would otherwise map to
+    # `tests/unit/test_*.py`, effectively allowing every unit test).
+    if _GLOB_METACHARS.search(path):
+        return derived
 
     # Rule A — JS/TS same-directory `.test` infix. Split the path into a
     # directory prefix (with trailing slash, or "" for bare top-level files)

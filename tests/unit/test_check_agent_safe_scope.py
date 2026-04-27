@@ -722,6 +722,34 @@ def test_implicit_test_helper_skips_non_source_paths():
     assert scope_check._implicit_test_paths("tests/unit/test_main.py") == []
 
 
+def test_implicit_test_helper_skips_glob_entries():
+    """Glob entries in `## Files to touch` must not derive implicit tests
+    — `src/starter/api/*.py` would otherwise map to `tests/unit/test_*.py`
+    (effectively every unit test). The implicit allowlist keys off
+    concrete paths only."""
+    assert scope_check._implicit_test_paths("src/starter/api/*.py") == []
+    assert scope_check._implicit_test_paths("ui/src/components/*.jsx") == []
+    assert scope_check._implicit_test_paths("scripts/?.py") == []
+    assert scope_check._implicit_test_paths("ui/src/[abc].js") == []
+
+
+def test_implicit_test_glob_in_files_to_touch_does_not_widen_scope():
+    """End-to-end: a glob entry in `## Files to touch` must not silently
+    widen scope to all unit tests via implicit derivation. Only the literal
+    glob is in scope; an unrelated test file that happens to match the
+    derived `tests/unit/test_*.py` pattern is rejected."""
+    body = """## Files to touch
+
+- `src/starter/api/*.py`
+
+## Next
+"""
+    diff = ["src/starter/api/users.py", "tests/unit/test_unrelated.py"]
+    v = scope_check.evaluate(body, ["agent-safe", "api"], diff)
+    assert v.level == "FAIL"
+    assert "tests/unit/test_unrelated.py" in v.out_of_scope
+
+
 def test_fix2_kept_areas_still_resolve():
     """Issue #90 Fix 2: the kept area labels (`api`, `auth`, `infra`, `ui`,
     `documentation`, `ci`) must still resolve to their globs after the

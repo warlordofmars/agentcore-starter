@@ -594,11 +594,18 @@ This section defines the taxonomy.
   - **JS/TS** — listing `<dir>/<name>.{js,jsx,ts,tsx}` implicitly accepts
     `<dir>/<name>.test.<ext>` and `<dir>/__snapshots__/<name>.test.<ext>.snap`
     in the **same directory only**.
-  - **Python** — listing any `<basename>.py` (under `src/starter/**`,
-    `scripts/**`, or anywhere) implicitly accepts
+  - **Python** — listing any non-test `<basename>.py` (under
+    `src/starter/**`, `scripts/**`, or anywhere) implicitly accepts
     `tests/unit/test_<basename>.py` and any nested
     `tests/unit/**/test_<basename>.py` (matches the repo's pytest
     convention of a fixed test root regardless of source location).
+    Entries whose basename already starts with `test_` are skipped —
+    forward-direction only.
+
+  Glob entries in `## Files to touch` (e.g. `src/starter/api/*.py`) do
+  not generate implicit test derivations; the implicit allowlist is
+  keyed off concrete source paths so a wildcard entry can't widen
+  scope to `tests/unit/test_*.py` (effectively all unit tests).
 
   The implicit allowlist is **forward-direction only**: listing the
   source implicitly accepts the test, but listing the test does NOT
