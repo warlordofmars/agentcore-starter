@@ -337,12 +337,17 @@ def _implicit_test_paths(source_path: str) -> list[str]:
         `tests/unit/test_foo.py` — forward-direction only),
       - the entry contains glob metacharacters (`*`, `?`, `[`) — globs are
         not concrete paths and would derive an over-broad implicit set
-        (e.g. `src/starter/**` would map to `tests/unit/test_**.py`).
+        (e.g. `src/starter/**/*.py` would map to `tests/unit/test_**.py`).
     """
     derived: list[str] = []
 
-    # Strip leading "./" if present; otherwise the path stays as-is.
-    path = source_path.removeprefix("./")
+    # Use the path exactly as provided. Path-prefix normalisation (e.g.
+    # stripping a leading "./") would diverge from how `check_scope` and
+    # `_matches_any` handle `allowed_globs` and `diff_files` — neither
+    # normalises — and would create asymmetric matching where the source
+    # path itself is rejected as out-of-scope while its derived test path
+    # still passes. Keep one consistent semantics.
+    path = source_path
 
     # Glob entries are not concrete paths — skip them to avoid over-broad
     # implicit derivations (a `*.py` entry would otherwise map to
