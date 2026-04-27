@@ -3,8 +3,11 @@
 JWT issuance and validation for OAuth 2.1 and management sessions.
 
 Tokens are signed with HS256 using a secret resolved from:
-  1. STARTER_JWT_SECRET env var (tests / local dev)
-  2. SSM Parameter /agentcore-starter/jwt-secret (Lambda runtime)
+  1. ``STARTER_JWT_SECRET`` env var (tests / local dev)
+  2. SSM parameter named by ``STARTER_JWT_SECRET_PARAM`` (Lambda runtime;
+     per-environment in non-prod, e.g. ``/agentcore-starter/<env>/jwt-secret``;
+     the legacy ``/agentcore-starter/jwt-secret`` path is kept as a
+     fallback default for environments where the env var isn't set)
 
 There is no random fallback — Lambda startup is gated by
 :func:`starter.startup.validate_secrets_or_die`, which fails closed if
@@ -48,8 +51,12 @@ def _jwt_secret() -> str:
     """Return the JWT signing secret.
 
     Priority:
-    1. STARTER_JWT_SECRET env var (tests / local dev)
-    2. SSM Parameter /agentcore-starter/jwt-secret (Lambda runtime)
+    1. ``STARTER_JWT_SECRET`` env var (tests / local dev)
+    2. SSM parameter whose path is supplied by ``STARTER_JWT_SECRET_PARAM``
+       (Lambda runtime; per-environment in non-prod, e.g.
+       ``/agentcore-starter/<env>/jwt-secret``). The literal default
+       below (``/agentcore-starter/jwt-secret``) is kept only as a legacy
+       fallback for environments where the env var isn't wired.
 
     SSM exceptions propagate — there is no random fallback. The
     fail-closed startup check (:mod:`starter.startup`) ensures Lambda
