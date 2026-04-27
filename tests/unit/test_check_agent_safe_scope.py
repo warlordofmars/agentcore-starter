@@ -578,6 +578,150 @@ def test_fix2_pruned_areas_no_longer_mapped():
     assert scope_check.area_label_paths(["compliance", "priority:p2"]) is None
 
 
+# ── Issue #105: implicit allowlist for co-located test files ─────────────────
+#
+# Two distinct rule shapes (locked in #105's design comment):
+#   Rule A — JS/TS same-directory `.test` infix.
+#   Rule B — Python basename-keyed, fixed `tests/unit/` root.
+# Forward-direction only: source in scope implies test in scope, but not
+# vice versa.
+
+
+def test_implicit_test_rule_a_js_co_located_test_passes():
+    """Rule A — JS source listed → JS co-located test implicitly accepted.
+    AC4 regression for PR #104: ui/src/api.js + ui/src/api.test.js touched
+    together passes scope check without listing the test explicitly."""
+    body = """## Files to touch
+
+- `ui/src/api.js`
+
+## Next
+"""
+    diff = ["ui/src/api.js", "ui/src/api.test.js"]
+    v = scope_check.evaluate(body, ["agent-safe", "ui"], diff)
+    assert v.level == "PASS"
+    assert v.source == "files-to-touch"
+
+
+def test_implicit_test_rule_a_tsx_co_located_test_passes():
+    """Rule A — TSX source listed → TSX co-located test implicitly accepted."""
+    body = """## Files to touch
+
+- `ui/src/components/Button.tsx`
+
+## Next
+"""
+    diff = ["ui/src/components/Button.tsx", "ui/src/components/Button.test.tsx"]
+    v = scope_check.evaluate(body, ["agent-safe", "ui"], diff)
+    assert v.level == "PASS"
+
+
+def test_implicit_test_rule_b_python_nested_test_passes():
+    """Rule B — Python source listed → nested test under tests/unit/
+    implicitly accepted. tests/unit/api/test_main.py for src/starter/api/main.py."""
+    body = """## Files to touch
+
+- `src/starter/api/main.py`
+
+## Next
+"""
+    diff = ["src/starter/api/main.py", "tests/unit/api/test_main.py"]
+    v = scope_check.evaluate(body, ["agent-safe", "api"], diff)
+    assert v.level == "PASS"
+
+
+def test_implicit_test_rule_b_python_flat_test_passes():
+    """Rule B — Python source listed → flat tests/unit/test_<name>.py
+    implicitly accepted. Cross-directory: scripts/check_agent_safe_scope.py
+    → tests/unit/test_check_agent_safe_scope.py."""
+    body = """## Files to touch
+
+- `scripts/check_agent_safe_scope.py`
+
+## Next
+"""
+    diff = [
+        "scripts/check_agent_safe_scope.py",
+        "tests/unit/test_check_agent_safe_scope.py",
+    ]
+    v = scope_check.evaluate(body, ["agent-safe", "ci"], diff)
+    assert v.level == "PASS"
+
+
+def test_implicit_test_forward_direction_only_js():
+    """Negative — Rule A is forward-direction only. Listing the test alone
+    does NOT implicitly accept the source. Production code changes always
+    require explicit listing."""
+    body = """## Files to touch
+
+- `ui/src/api.test.js`
+
+## Next
+"""
+    diff = ["ui/src/api.test.js", "ui/src/api.js"]
+    v = scope_check.evaluate(body, ["agent-safe", "ui"], diff)
+    assert v.level == "FAIL"
+    assert "ui/src/api.js" in v.out_of_scope
+
+
+def test_implicit_test_forward_direction_only_python():
+    """Negative — Rule B is forward-direction only. Listing the test alone
+    does NOT implicitly accept the source. Production code changes always
+    require explicit listing."""
+    body = """## Files to touch
+
+- `tests/unit/test_main.py`
+
+## Next
+"""
+    diff = ["tests/unit/test_main.py", "src/starter/api/main.py"]
+    v = scope_check.evaluate(body, ["agent-safe", "api"], diff)
+    assert v.level == "FAIL"
+    assert "src/starter/api/main.py" in v.out_of_scope
+
+
+def test_implicit_test_rule_a_does_not_cross_directories():
+    """Negative — Rule A is same-directory only. ui/src/api.js in scope
+    does NOT implicitly accept tests/api.test.js (different directory)."""
+    body = """## Files to touch
+
+- `ui/src/api.js`
+
+## Next
+"""
+    diff = ["ui/src/api.js", "tests/api.test.js"]
+    v = scope_check.evaluate(body, ["agent-safe", "ui"], diff)
+    assert v.level == "FAIL"
+    assert "tests/api.test.js" in v.out_of_scope
+
+
+def test_implicit_test_helper_returns_expected_paths_for_js():
+    """Direct test of `_implicit_test_paths` for JS — exposes Rule A's
+    derived paths so future maintainers can see the full surface."""
+    derived = scope_check._implicit_test_paths("ui/src/api.js")
+    assert "ui/src/api.test.js" in derived
+    assert "ui/src/__snapshots__/api.test.js.snap" in derived
+
+
+def test_implicit_test_helper_returns_expected_paths_for_python():
+    """Direct test of `_implicit_test_paths` for Python — exposes Rule B's
+    derived paths so future maintainers can see the full surface."""
+    derived = scope_check._implicit_test_paths("src/starter/api/main.py")
+    assert "tests/unit/test_main.py" in derived
+    assert "tests/unit/**/test_main.py" in derived
+
+
+def test_implicit_test_helper_skips_non_source_paths():
+    """Non-source paths (markdown, yml, paths that already look like tests)
+    yield no implicit derivations."""
+    assert scope_check._implicit_test_paths("CLAUDE.md") == []
+    assert scope_check._implicit_test_paths(".github/workflows/ci.yml") == []
+    # Already a test file — JS form.
+    assert scope_check._implicit_test_paths("ui/src/api.test.js") == []
+    # Already a test file — Python form.
+    assert scope_check._implicit_test_paths("tests/unit/test_main.py") == []
+
+
 def test_fix2_kept_areas_still_resolve():
     """Issue #90 Fix 2: the kept area labels (`api`, `auth`, `infra`, `ui`,
     `documentation`, `ci`) must still resolve to their globs after the

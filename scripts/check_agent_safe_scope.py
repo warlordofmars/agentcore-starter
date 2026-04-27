@@ -284,12 +284,114 @@ def _matches_any(path: str, globs: list[str]) -> bool:
     return False
 
 
+# Issue #105: implicit allowlist for co-located test files.
+#
+# When a source file is listed in `## Files to touch`, the scope check should
+# also accept its co-located test file without requiring the issue author to
+# enumerate both. Two distinct rule shapes (locked in #105's design comment):
+#
+# Rule A — JS/TS same-directory `.test` infix:
+#     <dir>/<name>.<ext> in scope (ext ∈ {js,jsx,ts,tsx})
+#         → <dir>/<name>.test.<ext>                                 implicit
+#         → <dir>/__snapshots__/<name>.test.<ext>.snap              implicit
+#     Same-directory only — does NOT cross directories.
+#
+# Rule B — Python basename-keyed, fixed `tests/unit/` root:
+#     <anywhere>/<basename>.py in scope
+#         → tests/unit/test_<basename>.py                           implicit
+#         → tests/unit/<any nested>/test_<basename>.py              implicit
+#     Cross-directory by design — pytest convention puts tests in a fixed
+#     root regardless of source location (covers src/starter/** and
+#     scripts/** without enumerating either).
+#
+# Forward-direction only: listing source implicitly accepts test, but
+# listing test does NOT implicitly accept source. Production code changes
+# always require explicit listing — preserves the property that the issue
+# body documents the real production-code surface of change.
+
+_JS_TS_EXTS = ("js", "jsx", "ts", "tsx")
+# Source filename pattern for Rule A. Must NOT already be a test file —
+# `<name>.<ext>` where `<name>` does not end with `.test`.
+_JS_TS_SOURCE_RE = re.compile(r"^(?P<name>.+?)\.(?P<ext>js|jsx|ts|tsx)$")
+# Python source filename pattern for Rule B. Must NOT already be a test
+# file — `<basename>.py` where `<basename>` does not start with `test_`.
+_PY_SOURCE_RE = re.compile(r"^(?P<basename>[^/]+)\.py$")
+
+
+def _implicit_test_paths(source_path: str) -> list[str]:
+    """
+    Given a source path from `## Files to touch`, return the list of
+    co-located test paths (and snapshot paths) that should be implicitly
+    accepted alongside it.
+
+    Returns an empty list when the source path is not a recognised source
+    file (e.g. `.md`, `.yml`, or a path that already looks like a test file
+    such as `foo.test.js` or `tests/unit/test_foo.py`).
+    """
+    derived: list[str] = []
+
+    # Strip leading "./" if present; otherwise the path stays as-is.
+    path = source_path.removeprefix("./")
+
+    # Rule A — JS/TS same-directory `.test` infix. Split the path into a
+    # directory prefix (with trailing slash, or "" for bare top-level files)
+    # and a filename so we can prepend the prefix back onto derived paths.
+    if "/" in path:
+        directory, _, filename = path.rpartition("/")
+        dir_prefix = f"{directory}/"
+    else:
+        filename = path
+        dir_prefix = ""
+
+    js_match = _JS_TS_SOURCE_RE.match(filename)
+    if js_match:
+        name = js_match.group("name")
+        ext = js_match.group("ext")
+        # Skip files that are already test files (e.g. `foo.test.js` —
+        # name ends with `.test`). Forward-direction only: tests don't
+        # imply more tests.
+        if not name.endswith(".test"):
+            derived.append(f"{dir_prefix}{name}.test.{ext}")
+            derived.append(f"{dir_prefix}__snapshots__/{name}.test.{ext}.snap")
+
+    # Rule B — Python basename-keyed, fixed `tests/unit/` root.
+    if path.endswith(".py"):
+        basename = path.rpartition("/")[2].removesuffix(".py")
+        # Skip files that are already test files (basename starts with
+        # `test_`). Forward-direction only.
+        if basename and not basename.startswith("test_"):
+            # Flat: tests/unit/test_<basename>.py
+            derived.append(f"tests/unit/test_{basename}.py")
+            # Nested: any path under tests/unit/ ending in
+            # test_<basename>.py — modelled with a glob.
+            derived.append(f"tests/unit/**/test_{basename}.py")
+
+    return derived
+
+
+def _expand_implicit_tests(allowed_globs: list[str]) -> list[str]:
+    """
+    Expand `allowed_globs` with implicit co-located test paths derived from
+    each source file in scope. Purely additive — original entries are
+    preserved unchanged. Returns the expanded list.
+    """
+    expanded = list(allowed_globs)
+    for entry in allowed_globs:
+        expanded.extend(_implicit_test_paths(entry))
+    return expanded
+
+
 def check_scope(diff_files: list[str], allowed_globs: list[str]) -> list[str]:
     """
     Return the list of files in `diff_files` that do NOT match any of the
     `allowed_globs`. Universal-allowed paths are always considered in-scope.
+
+    Implicit co-located test paths are derived from each source entry in
+    `allowed_globs` (see `_implicit_test_paths`) and added to the effective
+    allowlist before matching. This is forward-direction only — source in
+    scope implies test in scope, but not vice versa.
     """
-    effective = list(allowed_globs) + UNIVERSAL_ALLOWED
+    effective = _expand_implicit_tests(list(allowed_globs)) + UNIVERSAL_ALLOWED
     return [f for f in diff_files if not _matches_any(f, effective)]
 
 
