@@ -353,6 +353,11 @@ class AgentCoreStarterStack(cdk.Stack):
             role=api_role,
             environment={
                 **common_env,
+                # Tell the Python 3.12 managed runtime to delegate to AWSLWA's
+                # bootstrap wrapper before invoking the handler. Without this,
+                # the runtime treats `run.sh` as a dotted Python path and
+                # tries `import run`, raising Runtime.ImportModuleError.
+                "AWS_LAMBDA_EXEC_WRAPPER": "/opt/bootstrap",
                 # Tell AWSLWA to use response-streaming mode so SSE responses
                 # are streamed through the Function URL without buffering.
                 "AWS_LWA_INVOKE_MODE": "response_stream",
