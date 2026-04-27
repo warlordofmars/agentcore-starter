@@ -588,6 +588,34 @@ This section defines the taxonomy.
   strays outside that section. See issue #77 for the design rationale
   and edge-case handling.
 
+  Co-located test files are implicitly accepted alongside their source
+  (issue #105) — issue authors don't need to enumerate both. Two rule
+  shapes:
+  - **JS/TS** — listing `<dir>/<name>.{js,jsx,ts,tsx}` implicitly accepts
+    `<dir>/<name>.test.<ext>` and `<dir>/__snapshots__/<name>.test.<ext>.snap`
+    in the **same directory only**.
+  - **Python** — listing any non-test `<basename>.py` (under
+    `src/starter/**`, `scripts/**`, or anywhere) implicitly accepts
+    `tests/unit/test_<basename>.py` and any nested
+    `tests/unit/**/test_<basename>.py` (matches the repo's pytest
+    convention of a fixed test root regardless of source location).
+    Entries whose basename already starts with `test_` are skipped —
+    forward-direction only.
+
+  Glob entries in `## Files to touch` (e.g. `src/starter/api/*.py`) do
+  not generate implicit test derivations; the implicit allowlist is
+  keyed off concrete source paths so a wildcard entry can't widen
+  scope to `tests/unit/test_*.py` (effectively all unit tests).
+
+  The implicit allowlist is **forward-direction only**: listing the
+  source implicitly accepts the test, but listing the test does NOT
+  implicitly accept the source. Production code changes always require
+  explicit listing — this preserves the property that the issue body
+  documents the real production-code surface of change. Test-only
+  changes (e.g. "add unit tests for X") are still legitimate; list the
+  test file directly in `## Files to touch` and the existing parser
+  accepts it without any implicit derivation.
+
 ### Issue creation rules
 
 When filing a new issue:
