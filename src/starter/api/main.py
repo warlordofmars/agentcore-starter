@@ -107,10 +107,14 @@ async def _log_requests(request: Request, call_next):
 async def _verify_origin_secret(request: Request, call_next):
     """Reject requests missing the CloudFront X-Origin-Verify secret.
 
-    Disabled when ``STARTER_ORIGIN_VERIFY_PARAM`` is not set (local dev /
-    non-prod). The placeholder-value short-circuit was removed — the
-    fail-closed startup check (:mod:`starter.startup`) guarantees the
-    secret is rotated before the Lambda will start.
+    Disabled when neither ``STARTER_ORIGIN_VERIFY_PARAM`` nor
+    ``STARTER_ORIGIN_VERIFY_SECRET`` provides a secret (local dev /
+    non-prod). The placeholder-value short-circuit was removed for the
+    SSM-backed ``STARTER_ORIGIN_VERIFY_PARAM`` path — the fail-closed
+    startup check (:mod:`starter.startup`) guarantees that secret is
+    rotated before the Lambda will start. The direct env-var path
+    (``STARTER_ORIGIN_VERIFY_SECRET``) is for local dev and bypasses
+    startup validation.
     """
     from starter.auth.tokens import _origin_verify_secret
 
