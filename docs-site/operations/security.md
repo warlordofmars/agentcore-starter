@@ -158,15 +158,19 @@ middleware.
    > DIST_BODY_PATCHED=$(mktemp "${TMPDIR:-/tmp}/dist-body-patched.XXXXXX")
    > trap 'rm -f "$DIST_CONFIG" "$DIST_BODY" "$DIST_BODY_PATCHED"' EXIT
    >
-   > # 1. Resolve the distribution ID for this environment.
-   > #    For dev / jc / non-prod environments, the alias is
-   > #    `agentcore-starter-<env>` — substitute the env name in the
-   > #    JMESPath below. For prod, the alias is `agentcore-starter`
-   > #    (no env suffix), so use the prod-specific filter shown in
-   > #    the second form.
-   > # Non-prod (replace <env>):
+   > # 1. Resolve the distribution ID for this environment. The
+   > #    CloudFront alternate domain name is the full FQDN — for dev /
+   > #    jc / non-prod environments,
+   > #    `agentcore-starter-<env>.<hosted-zone>`; for prod,
+   > #    `agentcore-starter.<hosted-zone>` (no env suffix). The
+   > #    JMESPath uses exact-match (`@ == ...`) on the full FQDN to
+   > #    avoid matching unrelated distributions whose alias happens to
+   > #    share the `agentcore-starter-<env>` prefix (e.g. `dev` vs
+   > #    `dev2`) — `contains(@, ...)` would silently return multiple
+   > #    IDs and break the get-distribution-config call below.
+   > # Non-prod (replace <env> and <hosted-zone>):
    > DIST_ID=$(aws cloudfront list-distributions \
-   >   --query "DistributionList.Items[?Aliases.Items[?contains(@, 'agentcore-starter-<env>')]].Id" \
+   >   --query "DistributionList.Items[?Aliases.Items[?@ == 'agentcore-starter-<env>.<hosted-zone>']].Id" \
    >   --output text)
    > # Prod equivalent (uncomment for prod, comment out the form above):
    > # DIST_ID=$(aws cloudfront list-distributions \
