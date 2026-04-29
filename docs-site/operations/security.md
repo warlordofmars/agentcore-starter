@@ -105,16 +105,154 @@ middleware.
    ```
    For prod, the parameter path drops the `<env>/` segment:
    `/agentcore-starter/origin-verify-secret`.
-3. Re-deploy the stack so CloudFront picks up the new value via the
-   `CfnDynamicReference` in `origin_verify_header`. CDK only resolves
-   the SSM dynamic reference at synth/deploy time, so a parameter
-   update alone is not enough.
+3. Re-deploy the stack. **By itself this is not enough** — see the
+   WARNING immediately below. CDK synthesizes the
+   `CfnDynamicReference` in `origin_verify_header` into the
+   CloudFormation template, and CloudFormation resolves the resulting
+   <code v-pre>{{resolve:ssm:...}}</code> reference during stack
+   create/update. Because the template string stays byte-identical
+   across SSM rotations, a bare `aws ssm put-parameter` won't
+   propagate the new value, and the redeploy alone won't either. The
+   WARNING below explains why and gives the manual workaround required
+   after every rotation until [#116](https://github.com/warlordofmars/agentcore-starter/issues/116)
+   lands.
+
+   > **WARNING — `cdk deploy` does NOT propagate the rotated SSM
+   > value to CloudFront.** The CloudFront origin custom-header for
+   > `X-Origin-Verify` is wired with `CfnDynamicReferenceService.SSM`,
+   > which renders into the CloudFormation template as a fixed
+   > literal string of the form <code v-pre>{{resolve:ssm:/agentcore-starter/&lt;env&gt;/origin-verify-secret}}</code>.
+   > That template string is identical across SSM rotations, so
+   > CloudFormation sees no diff on the `UiDistribution` resource
+   > and CloudFront's stored distribution config is never updated.
+   > Tracked as [#116](https://github.com/warlordofmars/agentcore-starter/issues/116);
+   > until the architectural fix lands, follow the manual workaround
+   > below after every origin-verify rotation.
+   >
+   > **Failure mode.** The next Lambda cold start reads the new
+   > secret from SSM directly, but CloudFront keeps sending the old
+   > secret on every origin request. Result: every CloudFront-routed
+   > request returns 403 from `_verify_origin_secret`, surfacing
+   > minutes to hours after the deploy depending on cold-start
+   > timing. The deploy logs show success and there is no signal at
+   > the moment of action that anything is wrong — failure mimics
+   > success.
+   >
+   > **CLI workaround.** Splice the new secret into CloudFront's
+   > distribution config directly. Validated against the dev and jc
+   > distributions on 2026-04-29. The intermediate files contain the
+   > rotated secret in plaintext, so the snippet uses `mktemp` and
+   > a `trap` to wipe them on exit:
+   >
+   > ```bash
+   > # 0. Re-export the value just written to SSM in step 2 of the
+   > #    outer rotation procedure. The patch in step 3 below splices
+   > #    NEW_SECRET into CloudFront's distribution config.
+   > export NEW_SECRET="<the-same-value-passed-to-aws-ssm-put-parameter>"
+   >
+   > # Allocate temp files (with explicit templates for portability
+   > # across GNU coreutils and BSD mktemp) and ensure they are
+   > # removed on exit — they contain the rotated secret in plaintext.
+   > DIST_CONFIG=$(mktemp "${TMPDIR:-/tmp}/dist-config.XXXXXX")
+   > DIST_BODY=$(mktemp "${TMPDIR:-/tmp}/dist-body.XXXXXX")
+   > DIST_BODY_PATCHED=$(mktemp "${TMPDIR:-/tmp}/dist-body-patched.XXXXXX")
+   > trap 'rm -f "$DIST_CONFIG" "$DIST_BODY" "$DIST_BODY_PATCHED"' EXIT
+   >
+   > # 1. Resolve the distribution ID for this environment. The
+   > #    CloudFront alternate domain name is the full FQDN — for dev /
+   > #    jc / non-prod environments,
+   > #    `agentcore-starter-<env>.<hosted-zone>`; for prod,
+   > #    `agentcore-starter.<hosted-zone>` (no env suffix). The
+   > #    JMESPath uses exact-match (`@ == ...`) on the full FQDN to
+   > #    avoid matching unrelated distributions whose alias happens to
+   > #    share the `agentcore-starter-<env>` prefix (e.g. `dev` vs
+   > #    `dev2`) — `contains(@, ...)` would silently return multiple
+   > #    IDs and break the get-distribution-config call below.
+   > # Non-prod (replace <env> and <hosted-zone>):
+   > DIST_ID=$(aws cloudfront list-distributions \
+   >   --query "DistributionList.Items[?Aliases.Items[?@ == 'agentcore-starter-<env>.<hosted-zone>']].Id" \
+   >   --output text)
+   > # Prod equivalent (uncomment for prod, comment out the form above):
+   > # DIST_ID=$(aws cloudfront list-distributions \
+   > #   --query "DistributionList.Items[?Aliases.Items[?@ == 'agentcore-starter.<hosted-zone>']].Id" \
+   > #   --output text)
+   >
+   > # 2. Fetch the current distribution config + ETag. The response
+   > #    has top-level keys DistributionConfig and ETag; update-distribution
+   > #    accepts only the inner DistributionConfig as its --distribution-config
+   > #    body, so split the two.
+   > aws cloudfront get-distribution-config --id "$DIST_ID" > "$DIST_CONFIG"
+   > ETAG=$(jq -r '.ETag' "$DIST_CONFIG")
+   > jq '.DistributionConfig' "$DIST_CONFIG" > "$DIST_BODY"
+   >
+   > # 3. Patch the X-Origin-Verify HeaderValue under the Lambda
+   > #    Function URL origin (the origin whose CustomHeaders.Quantity > 0).
+   > jq --arg new "$NEW_SECRET" '
+   >   .Origins.Items |= map(
+   >     if (.CustomHeaders.Quantity // 0) > 0 then
+   >       .CustomHeaders.Items |= map(
+   >         if .HeaderName == "X-Origin-Verify" then .HeaderValue = $new else . end
+   >       )
+   >     else . end
+   >   )
+   > ' "$DIST_BODY" > "$DIST_BODY_PATCHED"
+   >
+   > # 4. Push the update with the captured ETag.
+   > aws cloudfront update-distribution \
+   >   --id "$DIST_ID" \
+   >   --if-match "$ETAG" \
+   >   --distribution-config "file://$DIST_BODY_PATCHED"
+   > ```
+   >
+   > **Verification.** Run the verification curls **only after
+   > completing rotation step 4 below** (the outer rotation
+   > procedure's Lambda bounce, which flushes the
+   > `_origin_verify_secret` lru-cache — distinct from the
+   > workaround snippet's own `# 4. Push the update…` step).
+   > Between `update-distribution` finishing and the Lambda bounce,
+   > CloudFront is sending the new header value while Lambda is
+   > still validating against the old cached value — every
+   > CloudFront-routed request 403s in that window, and the 403 is
+   > *expected*, not a failed CloudFront update. Wait for the
+   > distribution status to reach `Deployed` (a few minutes),
+   > perform rotation step 4, then run:
+   >
+   > ```bash
+   > # Direct Function URL with no header → 403 (Lambda rejects).
+   > curl -sS -o /dev/null -w "%{http_code}\n" \
+   >   "https://<lambda-function-url-host>/health"
+   > # Expect: 403
+   >
+   > # /health via CloudFront → 200 with status:ok ONLY after
+   > # rotation step 4 has refreshed Lambda's cached SSM secret to
+   > # match CloudFront's injected header value.
+   > curl -sS "https://agentcore-starter-<env>.<hosted-zone>/health"
+   > # Expect after rotation step 4: {"status":"ok","version":"..."}
+   > ```
+   >
+   > Both observations together confirm CloudFront is now sending
+   > the rotated secret and Lambda accepts it. If only the second
+   > step is verified, the validation is incomplete — a stale
+   > CloudFront header that happens to match a stale Lambda cache
+   > would also pass `/health`.
+
 4. Bounce the Lambda (e.g. publish a new version or update an
    environment variable) so the `lru_cache` on `_origin_verify_secret`
    re-reads SSM. CloudFront and Lambda are briefly out of sync during
    this window — schedule rotations during low traffic.
 
 #### If the parameter type ever needs to change
+
+> **The same propagation gap from the WARNING in step 3 applies
+> here.** Until [#116](https://github.com/warlordofmars/agentcore-starter/issues/116)
+> lands, references to "after the CDK redeploy" in this section
+> should be read as "after the CDK redeploy **and** the manual
+> `aws cloudfront update-distribution` step from the WARNING above".
+> The bullets describe what *would* happen if redeploy alone
+> propagated the SSM value, and translate to the post-#116 steady
+> state — they are still useful for understanding the misalignment
+> windows, but the manual step has to land in the same operator
+> sequence today.
 
 `aws ssm put-parameter --overwrite` cannot change a parameter's type;
 it can only update the value of an existing parameter of the same
@@ -133,15 +271,18 @@ CloudFront and Lambda:
   redeploy, the SSM parameter holds the new value but CloudFront is
   still injecting the old. Lambda will reject every CloudFront
   request as soon as its lru-cache expires (next cold start).
-- After the CDK redeploy but before the Lambda cold-starts,
+- After the CDK redeploy and the manual `update-distribution` step
+  (per the WARNING above), but before the Lambda cold-starts,
   CloudFront sends the new header value while Lambda is still
   validating against the old. Every request 403s.
 
 Recommend doing the type change during a maintenance pause: announce
-downtime, run delete-then-put, redeploy CDK, then force a Lambda
-cold start (publish a new version or touch an environment variable).
-Verify `/health` returns 200 through CloudFront and 403 against the
-direct Function URL before lifting the maintenance window.
+downtime, run delete-then-put, redeploy CDK, run the manual
+`aws cloudfront update-distribution` workaround from the WARNING in
+step 3, then force a Lambda cold start (publish a new version or
+touch an environment variable). Verify `/health` returns 200 through
+CloudFront and 403 against the direct Function URL before lifting the
+maintenance window.
 
 ## JWT signing secret
 
