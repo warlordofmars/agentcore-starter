@@ -106,12 +106,15 @@ middleware.
    For prod, the parameter path drops the `<env>/` segment:
    `/agentcore-starter/origin-verify-secret`.
 3. Re-deploy the stack. **By itself this is not enough** — see the
-   WARNING immediately below. CDK only resolves the
-   `CfnDynamicReference` in `origin_verify_header` at synth/deploy
-   time, so a bare `aws ssm put-parameter` won't propagate the new
-   value, but the redeploy alone won't either. The WARNING below
-   explains why and gives the manual workaround required after every
-   rotation until [#116](https://github.com/warlordofmars/agentcore-starter/issues/116)
+   WARNING immediately below. CDK synthesizes the
+   `CfnDynamicReference` in `origin_verify_header` into the
+   CloudFormation template, and CloudFormation resolves the resulting
+   <code v-pre>{{resolve:ssm:...}}</code> reference during stack
+   create/update. Because the template string stays byte-identical
+   across SSM rotations, a bare `aws ssm put-parameter` won't
+   propagate the new value, and the redeploy alone won't either. The
+   WARNING below explains why and gives the manual workaround required
+   after every rotation until [#116](https://github.com/warlordofmars/agentcore-starter/issues/116)
    lands.
 
    > **WARNING — `cdk deploy` does NOT propagate the rotated SSM
@@ -226,6 +229,17 @@ middleware.
 
 #### If the parameter type ever needs to change
 
+> **The same propagation gap from the WARNING in step 3 applies
+> here.** Until [#116](https://github.com/warlordofmars/agentcore-starter/issues/116)
+> lands, references to "after the CDK redeploy" in this section
+> should be read as "after the CDK redeploy **and** the manual
+> `aws cloudfront update-distribution` step from the WARNING above".
+> The bullets describe what *would* happen if redeploy alone
+> propagated the SSM value, and translate to the post-#116 steady
+> state — they are still useful for understanding the misalignment
+> windows, but the manual step has to land in the same operator
+> sequence today.
+
 `aws ssm put-parameter --overwrite` cannot change a parameter's type;
 it can only update the value of an existing parameter of the same
 type. Changing the type requires `aws ssm delete-parameter` followed
@@ -243,15 +257,18 @@ CloudFront and Lambda:
   redeploy, the SSM parameter holds the new value but CloudFront is
   still injecting the old. Lambda will reject every CloudFront
   request as soon as its lru-cache expires (next cold start).
-- After the CDK redeploy but before the Lambda cold-starts,
+- After the CDK redeploy and the manual `update-distribution` step
+  (per the WARNING above), but before the Lambda cold-starts,
   CloudFront sends the new header value while Lambda is still
   validating against the old. Every request 403s.
 
 Recommend doing the type change during a maintenance pause: announce
-downtime, run delete-then-put, redeploy CDK, then force a Lambda
-cold start (publish a new version or touch an environment variable).
-Verify `/health` returns 200 through CloudFront and 403 against the
-direct Function URL before lifting the maintenance window.
+downtime, run delete-then-put, redeploy CDK, run the manual
+`aws cloudfront update-distribution` workaround from the WARNING in
+step 3, then force a Lambda cold start (publish a new version or
+touch an environment variable). Verify `/health` returns 200 through
+CloudFront and 403 against the direct Function URL before lifting the
+maintenance window.
 
 ## JWT signing secret
 
