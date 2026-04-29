@@ -312,9 +312,16 @@ jobs:
       - name: SonarCloud Scan
         # Dependabot PRs run with a restricted GITHUB_TOKEN and have no
         # access to repo secrets — SONAR_TOKEN resolves to empty and the
-        # scan fails. Skip the secret-requiring steps for Dependabot; the
-        # PR coverage comment above (GITHUB_TOKEN only) still runs. See #120.
-        if: github.actor != 'dependabot[bot]'
+        # scan fails. Skip the secret-requiring steps for Dependabot PRs;
+        # the PR coverage comment above (GITHUB_TOKEN only) still runs.
+        # Gate on `pull_request.user.login` (the PR author) rather than
+        # `github.actor` — actor flips to the maintainer when a human
+        # re-runs the workflow, which would re-execute these steps on a
+        # still-Dependabot-authored PR and fail again. user.login is
+        # stable across re-runs. On push events `pull_request` is null,
+        # so the comparison is truthy and the step runs as today.
+        # See #120.
+        if: github.event.pull_request.user.login != 'dependabot[bot]'
         uses: SonarSource/sonarqube-scan-action@299e4b793aaa83bf2aba7c9c14bedbb485688ec4 # v7.1.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -326,7 +333,7 @@ jobs:
           args: ${{ github.ref == 'refs/heads/main' && '-Dsonar.qualitygate.wait=false' || '' }}
 
       - name: Fetch SonarCloud issues as SARIF
-        if: always() && github.actor != 'dependabot[bot]'
+        if: always() && github.event.pull_request.user.login != 'dependabot[bot]'
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
@@ -336,14 +343,14 @@ jobs:
           python3 scripts/sonar_to_sarif.py sonar-issues.json sonar.sarif
 
       - name: Upload SonarCloud results to GitHub Security
-        if: always() && github.actor != 'dependabot[bot]'
+        if: always() && github.event.pull_request.user.login != 'dependabot[bot]'
         uses: github/codeql-action/upload-sarif@f94817b9f0deeb3871261446912ae8f854d1b675 # codeql-bundle-v2.25.1
         with:
           sarif_file: sonar.sarif
           category: sonarcloud
 
       - name: Upload to Codecov
-        if: github.actor != 'dependabot[bot]'
+        if: github.event.pull_request.user.login != 'dependabot[bot]'
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         with:
           files: coverage-unit.xml,coverage-combined.xml,lcov.info
