@@ -646,15 +646,23 @@ jobs:
           STARTER_API_URL: ${{ needs.deploy-dev.outputs.api_url }}
         run: |
           # /health must return JSON with .status == 'ok' on a healthy
-          # Lambda. AWSLWA returns HTTP 200 even on init failure (the error
-          # JSON is the response body), so status-only smoke is structurally
-          # incapable of catching init failures. Do not unwind this
-          # assertion without filing a replacement defense — see #111.
+          # Lambda. AWSLWA returns HTTP 200 even on init failure (the
+          # error response body is whatever the runtime emitted — often
+          # plaintext like 'Runtime.ImportModuleError: ...', sometimes
+          # JSON), so status-only smoke is structurally incapable of
+          # catching init failures. Do not unwind this assertion without
+          # filing a replacement defense — see #111.
           RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" "${STARTER_API_URL%/}/health")
           STATUS=$(echo "$RESPONSE" | tail -n 1 | sed 's/^HTTP_CODE://')
           BODY=$(echo "$RESPONSE" | sed '$d')
           echo "Health check status: $STATUS"
-          echo "Health check body: $BODY"
+          # Print the body inside a workflow-command group, with each line
+          # prefixed, so a malicious/malformed body cannot inject Actions
+          # workflow commands (lines starting with '::...' are interpreted
+          # by the runner otherwise).
+          echo "::group::Health check body"
+          echo "$BODY" | sed 's/^/  /'
+          echo "::endgroup::"
           [ "$STATUS" = "200" ] || (echo "Dev health check HTTP status not 200!" && exit 1)
           HEALTH_STATUS=$(echo "$BODY" | jq -r '.status') || (echo "Dev health check body is not valid JSON!" && exit 1)
           [ "$HEALTH_STATUS" = "ok" ] || (echo "Dev health check .status != 'ok' (got: $HEALTH_STATUS)" && exit 1)
@@ -830,15 +838,23 @@ jobs:
           STARTER_API_URL: ${{ needs.deploy-prod.outputs.api_url }}
         run: |
           # /health must return JSON with .status == 'ok' on a healthy
-          # Lambda. AWSLWA returns HTTP 200 even on init failure (the error
-          # JSON is the response body), so status-only smoke is structurally
-          # incapable of catching init failures. Do not unwind this
-          # assertion without filing a replacement defense — see #111.
+          # Lambda. AWSLWA returns HTTP 200 even on init failure (the
+          # error response body is whatever the runtime emitted — often
+          # plaintext like 'Runtime.ImportModuleError: ...', sometimes
+          # JSON), so status-only smoke is structurally incapable of
+          # catching init failures. Do not unwind this assertion without
+          # filing a replacement defense — see #111.
           RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" "${STARTER_API_URL%/}/health")
           STATUS=$(echo "$RESPONSE" | tail -n 1 | sed 's/^HTTP_CODE://')
           BODY=$(echo "$RESPONSE" | sed '$d')
           echo "Health check status: $STATUS"
-          echo "Health check body: $BODY"
+          # Print the body inside a workflow-command group, with each line
+          # prefixed, so a malicious/malformed body cannot inject Actions
+          # workflow commands (lines starting with '::...' are interpreted
+          # by the runner otherwise).
+          echo "::group::Health check body"
+          echo "$BODY" | sed 's/^/  /'
+          echo "::endgroup::"
           [ "$STATUS" = "200" ] || (echo "Prod health check HTTP status not 200!" && exit 1)
           HEALTH_STATUS=$(echo "$BODY" | jq -r '.status') || (echo "Prod health check body is not valid JSON!" && exit 1)
           [ "$HEALTH_STATUS" = "ok" ] || (echo "Prod health check .status != 'ok' (got: $HEALTH_STATUS)" && exit 1)
