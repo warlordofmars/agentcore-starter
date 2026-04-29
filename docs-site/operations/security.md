@@ -105,10 +105,14 @@ middleware.
    ```
    For prod, the parameter path drops the `<env>/` segment:
    `/agentcore-starter/origin-verify-secret`.
-3. Re-deploy the stack so CloudFront picks up the new value via the
-   `CfnDynamicReference` in `origin_verify_header`. CDK only resolves
-   the SSM dynamic reference at synth/deploy time, so a parameter
-   update alone is not enough.
+3. Re-deploy the stack. **By itself this is not enough** — see the
+   WARNING immediately below. CDK only resolves the
+   `CfnDynamicReference` in `origin_verify_header` at synth/deploy
+   time, so a bare `aws ssm put-parameter` won't propagate the new
+   value, but the redeploy alone won't either. The WARNING below
+   explains why and gives the manual workaround required after every
+   rotation until [#116](https://github.com/warlordofmars/agentcore-starter/issues/116)
+   lands.
 
    > **WARNING — `cdk deploy` does NOT propagate the rotated SSM
    > value to CloudFront.** The CloudFront origin custom-header for
@@ -138,18 +142,33 @@ middleware.
    > a `trap` to wipe them on exit:
    >
    > ```bash
-   > # Allocate temp files and ensure they are removed even on error.
-   > DIST_CONFIG=$(mktemp)
-   > DIST_BODY=$(mktemp)
-   > DIST_BODY_PATCHED=$(mktemp)
+   > # 0. Re-export the value just written to SSM in step 2 of the
+   > #    outer rotation procedure. The patch in step 3 below splices
+   > #    NEW_SECRET into CloudFront's distribution config.
+   > export NEW_SECRET="<the-same-value-passed-to-aws-ssm-put-parameter>"
+   >
+   > # Allocate temp files (with explicit templates for portability
+   > # across GNU coreutils and BSD mktemp) and ensure they are
+   > # removed on exit — they contain the rotated secret in plaintext.
+   > DIST_CONFIG=$(mktemp "${TMPDIR:-/tmp}/dist-config.XXXXXX")
+   > DIST_BODY=$(mktemp "${TMPDIR:-/tmp}/dist-body.XXXXXX")
+   > DIST_BODY_PATCHED=$(mktemp "${TMPDIR:-/tmp}/dist-body-patched.XXXXXX")
    > trap 'rm -f "$DIST_CONFIG" "$DIST_BODY" "$DIST_BODY_PATCHED"' EXIT
    >
    > # 1. Resolve the distribution ID for this environment.
-   > #    Replace <env> with dev / jc / prod as appropriate; for prod,
-   > #    the alias is `agentcore-starter` (no env suffix).
+   > #    For dev / jc / non-prod environments, the alias is
+   > #    `agentcore-starter-<env>` — substitute the env name in the
+   > #    JMESPath below. For prod, the alias is `agentcore-starter`
+   > #    (no env suffix), so use the prod-specific filter shown in
+   > #    the second form.
+   > # Non-prod (replace <env>):
    > DIST_ID=$(aws cloudfront list-distributions \
    >   --query "DistributionList.Items[?Aliases.Items[?contains(@, 'agentcore-starter-<env>')]].Id" \
    >   --output text)
+   > # Prod equivalent (uncomment for prod, comment out the form above):
+   > # DIST_ID=$(aws cloudfront list-distributions \
+   > #   --query "DistributionList.Items[?Aliases.Items[?@ == 'agentcore-starter.<hosted-zone>']].Id" \
+   > #   --output text)
    >
    > # 2. Fetch the current distribution config + ETag. The response
    > #    has top-level keys DistributionConfig and ETag; update-distribution
@@ -161,7 +180,6 @@ middleware.
    >
    > # 3. Patch the X-Origin-Verify HeaderValue under the Lambda
    > #    Function URL origin (the origin whose CustomHeaders.Quantity > 0).
-   > #    NEW_SECRET is the value just written to SSM in step 2 above.
    > jq --arg new "$NEW_SECRET" '
    >   .Origins.Items |= map(
    >     if (.CustomHeaders.Quantity // 0) > 0 then
