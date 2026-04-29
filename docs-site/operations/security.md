@@ -200,9 +200,15 @@ middleware.
    >   --distribution-config "file://$DIST_BODY_PATCHED"
    > ```
    >
-   > **Verification.** After the `update-distribution` call returns
-   > and the distribution status reaches `Deployed` (a few minutes),
-   > confirm the new secret is in sync between CloudFront and Lambda:
+   > **Verification.** Run the verification curls **only after
+   > completing step 4 below** (the Lambda bounce that flushes the
+   > `_origin_verify_secret` lru-cache). Between `update-distribution`
+   > finishing and the Lambda bounce, CloudFront is sending the new
+   > header value while Lambda is still validating against the old
+   > cached value — every CloudFront-routed request 403s in that
+   > window, and the 403 is *expected*, not a failed CloudFront
+   > update. Wait for the distribution status to reach `Deployed`
+   > (a few minutes), perform step 4, then run:
    >
    > ```bash
    > # Direct Function URL with no header → 403 (Lambda rejects).
@@ -210,10 +216,11 @@ middleware.
    >   "https://<lambda-function-url-host>/health"
    > # Expect: 403
    >
-   > # /health via CloudFront → 200 with status:ok (CloudFront's injected
-   > # header now matches what Lambda reads from SSM).
+   > # /health via CloudFront → 200 with status:ok ONLY after step 4
+   > # has refreshed Lambda's cached SSM secret to match CloudFront's
+   > # injected header value.
    > curl -sS "https://agentcore-starter-<env>.<hosted-zone>/health"
-   > # Expect: {"status":"ok","version":"..."}
+   > # Expect after step 4: {"status":"ok","version":"..."}
    > ```
    >
    > Both observations together confirm CloudFront is now sending
