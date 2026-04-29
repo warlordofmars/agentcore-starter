@@ -652,19 +652,23 @@ jobs:
           # JSON), so status-only smoke is structurally incapable of
           # catching init failures. Do not unwind this assertion without
           # filing a replacement defense — see #111.
-          RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" "${STARTER_API_URL%/}/health")
-          STATUS=$(echo "$RESPONSE" | tail -n 1 | sed 's/^HTTP_CODE://')
-          BODY=$(echo "$RESPONSE" | sed '$d')
+          # -sS surfaces curl-side errors (DNS/TLS/connectivity) instead
+          # of silently hiding them; --connect-timeout / --max-time
+          # prevent indefinite hangs.
+          RESPONSE=$(curl -sS --connect-timeout 5 --max-time 15 -w "\nHTTP_CODE:%{http_code}" "${STARTER_API_URL%/}/health")
+          STATUS=$(printf '%s\n' "$RESPONSE" | tail -n 1 | sed 's/^HTTP_CODE://')
+          BODY=$(printf '%s\n' "$RESPONSE" | sed '$d')
           echo "Health check status: $STATUS"
           # Print the body inside a workflow-command group, with each line
           # prefixed, so a malicious/malformed body cannot inject Actions
           # workflow commands (lines starting with '::...' are interpreted
-          # by the runner otherwise).
+          # by the runner otherwise). Use printf to avoid echo's
+          # implementation-defined handling of leading '-n'/'-e' tokens.
           echo "::group::Health check body"
-          echo "$BODY" | sed 's/^/  /'
+          printf '%s\n' "$BODY" | sed 's/^/  /'
           echo "::endgroup::"
           [ "$STATUS" = "200" ] || (echo "Dev health check HTTP status not 200!" && exit 1)
-          HEALTH_STATUS=$(echo "$BODY" | jq -r '.status') || (echo "Dev health check body is not valid JSON!" && exit 1)
+          HEALTH_STATUS=$(printf '%s\n' "$BODY" | jq -r '.status') || (echo "Dev health check body is not valid JSON!" && exit 1)
           [ "$HEALTH_STATUS" = "ok" ] || (echo "Dev health check .status != 'ok' (got: $HEALTH_STATUS)" && exit 1)
 
       - name: Notify Slack — e2e failure
@@ -844,19 +848,23 @@ jobs:
           # JSON), so status-only smoke is structurally incapable of
           # catching init failures. Do not unwind this assertion without
           # filing a replacement defense — see #111.
-          RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" "${STARTER_API_URL%/}/health")
-          STATUS=$(echo "$RESPONSE" | tail -n 1 | sed 's/^HTTP_CODE://')
-          BODY=$(echo "$RESPONSE" | sed '$d')
+          # -sS surfaces curl-side errors (DNS/TLS/connectivity) instead
+          # of silently hiding them; --connect-timeout / --max-time
+          # prevent indefinite hangs.
+          RESPONSE=$(curl -sS --connect-timeout 5 --max-time 15 -w "\nHTTP_CODE:%{http_code}" "${STARTER_API_URL%/}/health")
+          STATUS=$(printf '%s\n' "$RESPONSE" | tail -n 1 | sed 's/^HTTP_CODE://')
+          BODY=$(printf '%s\n' "$RESPONSE" | sed '$d')
           echo "Health check status: $STATUS"
           # Print the body inside a workflow-command group, with each line
           # prefixed, so a malicious/malformed body cannot inject Actions
           # workflow commands (lines starting with '::...' are interpreted
-          # by the runner otherwise).
+          # by the runner otherwise). Use printf to avoid echo's
+          # implementation-defined handling of leading '-n'/'-e' tokens.
           echo "::group::Health check body"
-          echo "$BODY" | sed 's/^/  /'
+          printf '%s\n' "$BODY" | sed 's/^/  /'
           echo "::endgroup::"
           [ "$STATUS" = "200" ] || (echo "Prod health check HTTP status not 200!" && exit 1)
-          HEALTH_STATUS=$(echo "$BODY" | jq -r '.status') || (echo "Prod health check body is not valid JSON!" && exit 1)
+          HEALTH_STATUS=$(printf '%s\n' "$BODY" | jq -r '.status') || (echo "Prod health check body is not valid JSON!" && exit 1)
           [ "$HEALTH_STATUS" = "ok" ] || (echo "Prod health check .status != 'ok' (got: $HEALTH_STATUS)" && exit 1)
 
       - name: Notify Slack — e2e failure
