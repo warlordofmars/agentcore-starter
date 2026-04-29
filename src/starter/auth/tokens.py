@@ -3,9 +3,17 @@
 JWT issuance and validation for OAuth 2.1 and management sessions.
 
 Tokens are signed with HS256 using a secret resolved from:
-  1. STARTER_JWT_SECRET env var (tests / local dev)
-  2. SSM Parameter /agentcore-starter/jwt-secret (Lambda runtime)
-  3. Random fallback (single-process local dev only — not suitable for multi-instance)
+  1. ``STARTER_JWT_SECRET`` env var (tests / local dev)
+  2. SSM parameter named by ``STARTER_JWT_SECRET_PARAM`` (Lambda runtime;
+     per-environment in non-prod, e.g. ``/agentcore-starter/<env>/jwt-secret``;
+     the legacy ``/agentcore-starter/jwt-secret`` path is kept as a
+     fallback default for environments where the env var isn't set)
+
+There is no random fallback — Lambda startup is gated by
+:func:`starter.startup.validate_secrets_or_die`, which fails closed if
+the SSM parameter is unrotated, missing, or unreadable. Local execution
+without ``STARTER_JWT_SECRET`` set will surface the underlying SSM error
+rather than silently issuing tokens that no other process can validate.
 """
 
 from __future__ import annotations
@@ -43,21 +51,28 @@ def _jwt_secret() -> str:
     """Return the JWT signing secret.
 
     Priority:
-    1. STARTER_JWT_SECRET env var (tests / local dev)
-    2. SSM Parameter /agentcore-starter/jwt-secret (Lambda runtime)
-    3. Random fallback (single-process local dev only)
+    1. ``STARTER_JWT_SECRET`` env var (tests / local dev)
+    2. SSM parameter whose path is supplied by ``STARTER_JWT_SECRET_PARAM``
+       (Lambda runtime; per-environment in non-prod, e.g.
+       ``/agentcore-starter/<env>/jwt-secret``). The literal default
+       below (``/agentcore-starter/jwt-secret``) is kept only as a legacy
+       fallback for environments where the env var isn't wired.
+
+    SSM exceptions propagate — there is no random fallback. The
+    fail-closed startup check (:mod:`starter.startup`) ensures Lambda
+    cold start fails if the SSM parameter is unreadable, so a successful
+    return here means every Lambda warm pool sees the same secret.
     """
     if secret := os.environ.get("STARTER_JWT_SECRET"):
         return secret
-    try:  # pragma: no cover
-        import boto3
+    import boto3  # pragma: no cover
 
-        param_name = os.environ.get("STARTER_JWT_SECRET_PARAM", "/agentcore-starter/jwt-secret")
-        ssm = boto3.client("ssm")
-        resp = ssm.get_parameter(Name=param_name, WithDecryption=True)
-        return resp["Parameter"]["Value"]
-    except Exception:  # pragma: no cover
-        return secrets.token_hex(32)
+    param_name = os.environ.get(  # pragma: no cover
+        "STARTER_JWT_SECRET_PARAM", "/agentcore-starter/jwt-secret"
+    )
+    ssm = boto3.client("ssm")  # pragma: no cover
+    resp = ssm.get_parameter(Name=param_name, WithDecryption=True)  # pragma: no cover
+    return resp["Parameter"]["Value"]  # pragma: no cover
 
 
 @functools.lru_cache(maxsize=1)
