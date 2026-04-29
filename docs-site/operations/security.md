@@ -47,57 +47,64 @@ geo-restrictions, and CSP headers.
 | Header name | `X-Origin-Verify` |
 | Consumer (Lambda) | `src/starter/auth/tokens.py` (`_origin_verify_secret()`) |
 | Consumer (middleware) | `src/starter/api/main.py` (`_verify_origin_secret`) |
-| Injector (CloudFront) | `infra/stacks/starter_stack.py` (`origin_verify_header`, prod-only) |
+| Injector (CloudFront) | `infra/stacks/starter_stack.py` (`origin_verify_header`, all environments) |
 
 ### Current behaviour
 
-The middleware actively verifies the header only when **both** of the
-following are true:
+The middleware actively verifies the header when
+`STARTER_ORIGIN_VERIFY_PARAM` (or `STARTER_ORIGIN_VERIFY_SECRET`) is
+set in the Lambda environment and the resolved SSM value can be read.
+The request is rejected if the incoming `x-origin-verify` header does
+**not** match the resolved value; a matching header is the success
+case and the request is allowed through.
 
-1. `STARTER_ORIGIN_VERIFY_PARAM` (or `STARTER_ORIGIN_VERIFY_SECRET`)
-   is set in the Lambda environment.
-2. The resolved value is **not** the literal placeholder
-   `CHANGE_ME_ON_FIRST_DEPLOY`.
+The CDK stack sets `STARTER_ORIGIN_VERIFY_PARAM` and injects
+`X-Origin-Verify` from CloudFront in **every** environment. The fail-
+closed startup validator (issue #16) refuses to start the Lambda when
+the SSM parameter still holds the `CHANGE_ME_ON_FIRST_DEPLOY`
+placeholder, so a half-configured deploy never silently degrades —
+Lambda init fails, `/health` returns the runtime error body, and the
+CI smoke test for the dev environment trips the pipeline red. **Rotate
+the secret immediately after the first deploy in any environment**
+using the procedure below.
 
-When those conditions are met, the request is rejected if the incoming
-`x-origin-verify` header does **not** match the resolved value. A
-matching header is the success case and the request is allowed through.
-
-The CDK stack sets `STARTER_ORIGIN_VERIFY_PARAM` in **every**
-environment, but CloudFront only injects the `X-Origin-Verify`
-header on the prod distribution. In non-prod environments the
-middleware is effectively skipping enforcement only because the SSM
-parameter still holds the `CHANGE_ME_ON_FIRST_DEPLOY` placeholder
-(condition 2 above) — **do not rotate the non-prod parameter away
-from the placeholder unless you also wire CloudFront header injection
-for that environment**, or non-prod traffic will start being rejected.
-In prod, if the SSM parameter still holds the placeholder, the
-middleware silently allows every request through. **Rotate the
-secret immediately after the first prod deploy** (procedure below).
-Issue #16 will turn this silent-pass into a startup error.
-
-The current resolver in `src/starter/auth/tokens.py`
-(`_origin_verify_secret`) also returns `None` on any SSM exception
-(missing parameter, IAM denial, network error). When `None` is
-returned, the middleware fails the first condition of its check and
-allows the request through. Because `_origin_verify_secret()` is
-wrapped in `functools.lru_cache(maxsize=1)`, this fail-open state
-only happens for a given Lambda execution environment if its first
-secret read hits that exception path and caches `None`; if the secret
-was already read successfully, later transient SSM outages do not
-disable enforcement for that warm process. Issue #16 will replace
-this fail-open behaviour with a startup-time failure when the
-parameter is configured but cannot be read.
+The resolver in `src/starter/auth/tokens.py` (`_origin_verify_secret`)
+returns `None` on any SSM exception (missing parameter, IAM denial,
+network error). When `None` is returned, the middleware skips
+verification — but the startup validator already proved the parameter
+is readable at cold start, so this branch only fires on a transient
+SSM outage *after* a successful warm-up read. Because
+`_origin_verify_secret()` is wrapped in `functools.lru_cache(maxsize=1)`,
+the first successful read pins the value for the warm container's
+lifetime; the failure branch only matters if the very first read is a
+transient failure and gets cached as `None`. The startup validator
+makes that window narrow but not zero — see #16's discussion of a
+follow-up to resolve the value at startup and pass it into the
+middleware.
 
 ### Rotation procedure
 
+> **Keep `Type=String`. Do not rotate to `SecureString`.**
+> The CloudFront origin custom-header injection uses
+> `CfnDynamicReferenceService.SSM`, which only resolves plaintext SSM
+> parameters. Rotating to `SecureString` causes the dynamic reference
+> to resolve to `null`, CloudFront stops sending `X-Origin-Verify`,
+> and every request through CloudFront returns 403 from the Lambda
+> middleware. The secret is defense-in-depth — preventing direct
+> Function URL access from outside the AWS account — not crypto. The
+> IAM-gated visibility on SSM and CloudFront origin config is the
+> security boundary, and `String` is sufficient.
+
 1. Generate a new high-entropy value (e.g. `openssl rand -hex 32`).
-2. Update the SSM parameter:
+2. Update the SSM parameter (canonical command form — note
+   `--type String` and `--overwrite`):
    ```bash
    aws ssm put-parameter \
-     --name /agentcore-starter/origin-verify-secret \
+     --name /agentcore-starter/<env>/origin-verify-secret \
      --value "$NEW_SECRET" --type String --overwrite
    ```
+   For prod, the parameter path drops the `<env>/` segment:
+   `/agentcore-starter/origin-verify-secret`.
 3. Re-deploy the stack so CloudFront picks up the new value via the
    `CfnDynamicReference` in `origin_verify_header`. CDK only resolves
    the SSM dynamic reference at synth/deploy time, so a parameter
@@ -106,6 +113,35 @@ parameter is configured but cannot be read.
    environment variable) so the `lru_cache` on `_origin_verify_secret`
    re-reads SSM. CloudFront and Lambda are briefly out of sync during
    this window — schedule rotations during low traffic.
+
+#### If the parameter type ever needs to change
+
+`aws ssm put-parameter --overwrite` cannot change a parameter's type;
+it can only update the value of an existing parameter of the same
+type. Changing the type requires `aws ssm delete-parameter` followed
+by a fresh `put-parameter` with the new type.
+
+A delete-then-put sequence opens a misalignment window between
+CloudFront and Lambda:
+
+- After the `delete-parameter` call but before the next CDK deploy,
+  CloudFront still has the **old** secret cached in its origin
+  custom-header config; Lambda's `_origin_verify_secret` lru-cache
+  also still has the old value (until the Lambda cold-starts). New
+  requests pass.
+- After `put-parameter` (with the new value) but before the CDK
+  redeploy, the SSM parameter holds the new value but CloudFront is
+  still injecting the old. Lambda will reject every CloudFront
+  request as soon as its lru-cache expires (next cold start).
+- After the CDK redeploy but before the Lambda cold-starts,
+  CloudFront sends the new header value while Lambda is still
+  validating against the old. Every request 403s.
+
+Recommend doing the type change during a maintenance pause: announce
+downtime, run delete-then-put, redeploy CDK, then force a Lambda
+cold start (publish a new version or touch an environment variable).
+Verify `/health` returns 200 through CloudFront and 403 against the
+direct Function URL before lifting the maintenance window.
 
 ## JWT signing secret
 

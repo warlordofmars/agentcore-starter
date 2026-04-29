@@ -179,6 +179,14 @@ class AgentCoreStarterStack(cdk.Stack):
         )
         allowed_emails_param.apply_removal_policy(cdk.RemovalPolicy.RETAIN)
 
+        # OriginVerifySecret is intentionally Type=String, NOT SecureString.
+        # CfnDynamicReferenceService.SSM (used to inject the value into
+        # CloudFront's origin custom headers) cannot resolve SecureString
+        # parameters. The secret is defense-in-depth — preventing direct
+        # Function URL access from outside the AWS account — not crypto.
+        # The IAM-gated visibility on SSM and CloudFront origin config is
+        # the security boundary. Rotating to SecureString breaks the deploy.
+        # See docs-site/operations/security.md for the rotation runbook.
         origin_verify_param = ssm.StringParameter(
             self,
             "OriginVerifySecret",
@@ -418,21 +426,26 @@ class AgentCoreStarterStack(cdk.Stack):
         # API origin — strip "https://" prefix and trailing "/" from the function URL
         api_origin_domain = cdk.Fn.select(2, cdk.Fn.split("/", api_url.url))
 
-        # CloudFront injects X-Origin-Verify on prod so Lambda can reject direct
-        # Function URL access. The header value is resolved from SSM at deploy
-        # time via a CloudFormation dynamic reference.
-        origin_verify_header: dict[str, str] = (
-            {
-                "X-Origin-Verify": cdk.Token.as_string(
-                    cdk.CfnDynamicReference(
-                        cdk.CfnDynamicReferenceService.SSM,
-                        origin_verify_param.parameter_name,
-                    )
+        # CloudFront injects X-Origin-Verify in every environment so Lambda
+        # can reject direct Function URL access. The header value is resolved
+        # from SSM at deploy time via a CloudFormation dynamic reference.
+        #
+        # OriginVerifySecret is intentionally Type=String, NOT SecureString.
+        # CfnDynamicReferenceService.SSM (used to inject the value into
+        # CloudFront's origin custom headers) cannot resolve SecureString
+        # parameters. The secret is defense-in-depth — preventing direct
+        # Function URL access from outside the AWS account — not crypto.
+        # The IAM-gated visibility on SSM and CloudFront origin config is
+        # the security boundary. Rotating to SecureString breaks the deploy.
+        # See docs-site/operations/security.md for the rotation runbook.
+        origin_verify_header = {
+            "X-Origin-Verify": cdk.Token.as_string(
+                cdk.CfnDynamicReference(
+                    cdk.CfnDynamicReferenceService.SSM,
+                    origin_verify_param.parameter_name,
                 )
-            }
-            if is_prod
-            else {}
-        )
+            )
+        }
 
         api_cf_origin = origins.HttpOrigin(
             api_origin_domain,
