@@ -1,15 +1,25 @@
 # Copyright (c) 2026 John Carter. All rights reserved.
-"""Unit tests for management auth routes and helper functions."""
+"""Unit tests for management auth routes and helper functions.
+
+State storage (:mod:`starter.auth.state_store`) is patched at module
+boundary so these tests do not hit DynamoDB. The fake implementation
+mirrors the production contract: ``put_state`` records the state and
+``consume_state`` returns the stored payload exactly once, then
+``None`` thereafter.
+"""
 
 import os
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 os.environ.setdefault("STARTER_JWT_SECRET", "test-secret-for-unit-tests")
 os.environ.setdefault("GOOGLE_CLIENT_ID", "test-google-client-id")
 
 from starter.api.main import app  # noqa: E402
+from starter.auth import state_store  # noqa: E402
 from starter.auth.google import _google_client_id, _reset_allowed_emails_cache  # noqa: E402
 from starter.auth.mgmt_auth import (  # noqa: E402
     _consume_pending_state,
@@ -25,6 +35,29 @@ _client = TestClient(app, follow_redirects=False)
 def _clear_google_caches():
     _google_client_id.cache_clear()
     _reset_allowed_emails_cache()
+
+
+@pytest.fixture(autouse=True)
+def _fake_state_store(monkeypatch):
+    """In-memory fake for state_store; mirrors single-use semantics.
+
+    Production state_store hits DynamoDB. The unit tests want to verify
+    the mgmt_auth control flow (state created, callback consumes it
+    exactly once) without spinning up DynamoDB Local — this fake
+    captures that behaviour. Atomic-consume / expiry edge cases are
+    covered separately in tests/unit/test_auth_state_store.py.
+    """
+    store: dict[str, dict[str, Any]] = {}
+
+    def _put(state: str, payload: dict[str, Any] | None = None, ttl_seconds: int = 600) -> None:
+        store[state] = dict(payload or {})
+
+    def _consume(state: str) -> dict[str, Any] | None:
+        return store.pop(state, None)
+
+    monkeypatch.setattr(state_store, "put_state", _put)
+    monkeypatch.setattr(state_store, "consume_state", _consume)
+    yield store
 
 
 def setup_function():
