@@ -309,19 +309,45 @@ jobs:
               });
             }
 
+      # Detect whether SonarCloud is configured for this fork.
+      # A fresh fork won't have SONAR_TOKEN set yet — the SonarCloud project
+      # must be created and the token generated through the SonarCloud UI
+      # before the scan can run. Without this gate the scanner fails the
+      # whole Coverage Report job, which cascades to Deploy / E2E / Release.
+      # See #54 for the bootstrap-pattern context and the onboarding doc
+      # update that walks through the SonarCloud setup steps.
+      #
+      # When SONAR_TOKEN is unset, this step emits a `::warning::`
+      # annotation (visible in the GitHub Actions run summary, not just
+      # the step logs) so that an accidental secret deletion in a repo
+      # that previously had SonarCloud configured is loudly surfaced
+      # rather than silently fail-open. The skip is the right behaviour
+      # for fresh forks (which is why the job doesn't fail), but the
+      # warning ensures the operator notices on every PR until the
+      # secret is restored.
+      #
+      # Emits `configured=true` only when the secret is non-empty AND the
+      # PR isn't from Dependabot (Dependabot PRs run with a restricted
+      # GITHUB_TOKEN and have no access to repo secrets — see #120).
+      - name: Check SonarCloud configured
+        id: sonar_configured
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          if [ -z "${SONAR_TOKEN:-}" ]; then
+            echo "::warning title=SonarCloud skipped::SONAR_TOKEN is not set — SonarCloud scan skipped. Fresh fork? See .claude/agents/onboarding.md Phase 4.5. Canonical repo? The secret may have been accidentally deleted (issue #54)."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          elif [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
+            echo "Dependabot PR — skipping SonarCloud steps (no secret access, see #120)."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "SonarCloud is configured — scan will run."
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: SonarCloud Scan
-        # Dependabot PRs run with a restricted GITHUB_TOKEN and have no
-        # access to repo secrets — SONAR_TOKEN resolves to empty and the
-        # scan fails. Skip the secret-requiring steps for Dependabot PRs;
-        # the PR coverage comment above (GITHUB_TOKEN only) still runs.
-        # Gate on `pull_request.user.login` (the PR author) rather than
-        # `github.actor` — actor flips to the maintainer when a human
-        # re-runs the workflow, which would re-execute these steps on a
-        # still-Dependabot-authored PR and fail again. user.login is
-        # stable across re-runs. On push events `pull_request` is null,
-        # so the comparison is truthy and the step runs as today.
-        # See #120.
-        if: github.event.pull_request.user.login != 'dependabot[bot]'
+        if: steps.sonar_configured.outputs.configured == 'true'
         uses: SonarSource/sonarqube-scan-action@299e4b793aaa83bf2aba7c9c14bedbb485688ec4 # v7.1.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -333,7 +359,7 @@ jobs:
           args: ${{ github.ref == 'refs/heads/main' && '-Dsonar.qualitygate.wait=false' || '' }}
 
       - name: Fetch SonarCloud issues as SARIF
-        if: always() && github.event.pull_request.user.login != 'dependabot[bot]'
+        if: always() && steps.sonar_configured.outputs.configured == 'true'
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
@@ -343,7 +369,7 @@ jobs:
           python3 scripts/sonar_to_sarif.py sonar-issues.json sonar.sarif
 
       - name: Upload SonarCloud results to GitHub Security
-        if: always() && github.event.pull_request.user.login != 'dependabot[bot]'
+        if: always() && steps.sonar_configured.outputs.configured == 'true'
         uses: github/codeql-action/upload-sarif@f94817b9f0deeb3871261446912ae8f854d1b675 # codeql-bundle-v2.25.1
         with:
           sarif_file: sonar.sarif

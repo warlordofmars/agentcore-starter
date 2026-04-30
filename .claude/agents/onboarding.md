@@ -348,12 +348,60 @@ Required secrets — set each that's missing:
 
 `AWS_DEV_DEPLOY_ROLE_ARN` and `AWS_DEPLOY_ROLE_ARN` are a chicken-and-egg: the CDK stack creates the IAM role, but CI needs the ARN to deploy. Resolve by doing the first deploy manually (Phase 5), then setting the secrets from the stack outputs.
 
+`SONAR_TOKEN` is also a chicken-and-egg: the SonarCloud project must exist before a token can be generated, and the token must be set before the first scan can run. The CI workflow degrades gracefully when `SONAR_TOKEN` is unset (the SonarCloud steps are skipped with a clear log line, see #54), so you can defer the SonarCloud bootstrap until after the first deploy. Phase 4.5 below walks through the full SonarCloud setup including the new-code baseline definition.
+
 ```bash
 gh secret set AWS_DEV_DEPLOY_ROLE_ARN --body "<arn>"
 gh secret set AWS_DEPLOY_ROLE_ARN --body "<arn>"
 gh secret set SONAR_TOKEN --body "<token>"
 # etc.
 ```
+
+---
+
+## Phase 4.5 — SonarCloud project + new-code baseline
+
+The CI `Coverage Report` job runs a SonarCloud scan that requires three things to be in place before it can succeed:
+
+1. The SonarCloud project must exist for the forked repo
+2. `SONAR_TOKEN` must be set as a GitHub Actions secret (covered in Phase 4)
+3. The new-code baseline must be defined on the SonarCloud project — without this, `sonar.qualitygate.wait=true` fails CI with `sonar-scanner exit code 3` and no clear log signal
+
+When `SONAR_TOKEN` is unset, the workflow's "Check SonarCloud configured" gate skips the scan steps cleanly with a log line pointing back to this phase — the rest of the pipeline (deploy, e2e, release) still runs. So the SonarCloud bootstrap is deferrable, but the new-code baseline trap is real: once you set `SONAR_TOKEN` without also defining the baseline, post-merge CI will silently fail with exit 3 and the downstream pipeline will skip.
+
+### 4.5a. Create the SonarCloud project
+
+1. Visit [sonarcloud.io](https://sonarcloud.io) and sign in with the same GitHub account that owns the fork.
+2. Click **+** (top-right) → **Analyze new project**.
+3. Select your GitHub organisation and the forked repo. If the org isn't listed, install the SonarCloud GitHub App on it first.
+4. Choose the **Free plan** if prompted (works for public repos).
+5. Note the project key — for warlordofmars/agentcore-starter it's `warlordofmars_agentcore-starter`. Yours will follow the same `<org>_<repo>` convention.
+
+If your project key differs from `warlordofmars_agentcore-starter`, update `sonar-project.properties` (or `pom.xml`/`build.gradle` if those exist) AND the SARIF-fetch curl in `.github/workflows/ci.yml` (the `projectKeys=` query param) to match.
+
+### 4.5b. Generate SONAR_TOKEN and set it as a GitHub secret
+
+1. On sonarcloud.io, click your avatar (top-right) → **My Account** → **Security**.
+2. Generate a token with **User Token** type, scope **Execute Analysis**, and an expiry that matches your security policy (1 year is typical).
+3. Copy the token — you won't be able to view it again.
+4. Set it as a GitHub Actions secret:
+
+   ```bash
+   gh secret set SONAR_TOKEN --body "<token>"
+   ```
+
+### 4.5c. Define the new-code baseline (required, easy to miss)
+
+This step **must** be performed in the SonarCloud UI after the first analysis has run. Without it, `sonar.qualitygate.wait=true` fails CI with `sonar-scanner exit code 3` and no clear signal in the workflow logs — the scan appears to upload successfully, then the quality-gate poll exits non-zero. This trap was hit on warlordofmars/agentcore-starter on 2026-04-26 after a default-branch rename reset the baseline; affected post-merge runs for PRs #93/#94/#95 (see #96 for the misdiagnosis writeup).
+
+After the first PR-or-push CI run completes a SonarCloud scan:
+
+1. Go to your project on sonarcloud.io.
+2. Navigate to **Administration** → **New Code**.
+3. Pick a baseline definition. The recommended setting for this repo is **Reference branch** with branch `development` — every push to a feature branch is then scored against the latest `development` SHA. **Previous version** also works if you prefer release-tagged baselines.
+4. Save. The next CI run's quality gate will use the new baseline; quality-gate-wait will succeed without the silent exit-3 failure.
+
+**When this needs to be redone:** any time the default branch is renamed or recreated, the SonarCloud baseline resets to undefined. Re-do step 4.5c after any default-branch surgery (e.g. the `main`-to-`development` rename in this repo). Branch-protection setup (Phase 1.5) does not reset the baseline; only branch creation/rename does.
 
 ---
 
@@ -455,6 +503,11 @@ Phase 4 — GitHub secrets
   [x/○] SONAR_TOKEN
   [x/○] CODECOV_TOKEN
 
+Phase 4.5 — SonarCloud bootstrap
+  [x/○] SonarCloud project created
+  [x/○] SONAR_TOKEN secret set
+  [x/○] New-code baseline defined in SonarCloud UI
+
 Phase 5 — First deploy
   [x/○] Stack deployed to <env>
   [x/○] Echo endpoint smoke test passed
@@ -477,3 +530,4 @@ If any Phase 1–5 item is `○`, do not declare setup complete. Identify the fi
 - **Branch protection is non-optional.** On 2026-04-26 a wholesale `git push` from a long-lived clone force-rewound `origin/development` by 11 merges in the upstream template repo. Recovery succeeded only because a parallel clone retained the pre-rewind HEAD locally. The exact failure was made possible by the gap that Phase 1.5 closes — `development` had no protection at the time, so the force-push was accepted by GitHub. The SEC-1 incident (#15) and the corresponding remediation issue (#50) are the canonical references; ADR-0008 captures the W1–W7 push-discipline rules layered on top of the branch protection. Apply Phase 1.5 to every fork before opening a single PR — it is not optional and must not be deferred.
 - **`gh pr merge --auto` is silently a no-op without `allow_auto_merge=true`.** Phase 1.5's PATCH step turns this on. If you skip Phase 1.5, every `gh pr merge --auto --squash` call documented in CLAUDE.md will return success but never queue the merge — the PR sits open until a human merges it manually.
 - **`gh api -F field=` cannot pass JSON `null`.** The form silently degrades to an empty string, which the GitHub branch-protection API rejects. The `--input -` form with a heredoc is the only working syntax for `required_pull_request_reviews=null` and `restrictions=null`.
+- **SonarCloud's new-code baseline trap.** Setting `SONAR_TOKEN` without also defining the new-code baseline in the SonarCloud UI causes `sonar-scanner` to exit 3 silently — the scan uploads cleanly, then the quality-gate poll fails with no clear log signal. Phase 4.5c is mandatory whenever the SonarCloud project is fresh OR the default branch was renamed/recreated. This is how the same family of post-merge silent-failure cascades (#93/#94/#95) was misdiagnosed as a code-quality issue in 2026-04-26 (#96).
