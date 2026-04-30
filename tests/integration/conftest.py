@@ -53,7 +53,26 @@ def starter_table(dynamodb_resource: Any, table_name: str) -> Any:
     run so the suite starts clean each session. No table-row cleanup
     between individual tests — tests use unique state strings to avoid
     cross-pollution (same pattern as the e2e suite).
+
+    **Safety guard**: the integration env vars at the top of this file
+    are set via ``setdefault()``, which means a developer or CI
+    environment that already has ``STARTER_TABLE_NAME`` /
+    ``DYNAMODB_ENDPOINT`` set could point this fixture at a real
+    DynamoDB endpoint and the destructive drop step below would delete
+    an externally-managed table. We refuse to proceed unless
+    ``DYNAMODB_ENDPOINT`` resolves to localhost / 127.0.0.1 / a
+    docker-internal hostname — the suite is DynamoDB-Local-only by
+    design.
     """
+    endpoint = os.environ.get("DYNAMODB_ENDPOINT", "")
+    if not any(host in endpoint for host in ("localhost", "127.0.0.1", "dynamodb-local")):
+        raise RuntimeError(
+            f"Refusing to provision integration test table against non-local DynamoDB "
+            f"endpoint {endpoint!r}. This fixture performs a destructive drop+recreate; "
+            f"set DYNAMODB_ENDPOINT to http://localhost:8000 (or a DynamoDB Local URL) "
+            f"before running the integration suite."
+        )
+
     existing = {t.name for t in dynamodb_resource.tables.all()}
     if table_name in existing:
         dynamodb_resource.Table(table_name).delete()
