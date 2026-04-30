@@ -10,9 +10,17 @@ from __future__ import annotations
 
 import os
 from typing import Any
+from urllib.parse import urlparse
 
 import boto3
 import pytest
+
+# Hosts that are safe targets for the destructive drop+recreate in
+# starter_table. Anything else (including hostnames that merely contain
+# "localhost" as a substring, e.g. ``localhost.evil.com``) must be
+# rejected — the substring form is a footgun, urlparse().hostname is
+# the only correct check.
+_SAFE_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "dynamodb-local"}
 
 # Override AWS creds for DynamoDB Local
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "local")
@@ -59,18 +67,21 @@ def starter_table(dynamodb_resource: Any, table_name: str) -> Any:
     environment that already has ``STARTER_TABLE_NAME`` /
     ``DYNAMODB_ENDPOINT`` set could point this fixture at a real
     DynamoDB endpoint and the destructive drop step below would delete
-    an externally-managed table. We refuse to proceed unless
-    ``DYNAMODB_ENDPOINT`` resolves to localhost / 127.0.0.1 / a
-    docker-internal hostname — the suite is DynamoDB-Local-only by
-    design.
+    an externally-managed table. We refuse to proceed unless the
+    parsed ``DYNAMODB_ENDPOINT`` hostname is in
+    :data:`_SAFE_LOCAL_HOSTS` — the suite is DynamoDB-Local-only by
+    design. Parsing with ``urlparse`` (rather than substring matching)
+    blocks bypasses like ``http://localhost.evil.com``.
     """
     endpoint = os.environ.get("DYNAMODB_ENDPOINT", "")
-    if not any(host in endpoint for host in ("localhost", "127.0.0.1", "dynamodb-local")):
+    hostname = urlparse(endpoint).hostname
+    if hostname not in _SAFE_LOCAL_HOSTS:
         raise RuntimeError(
             f"Refusing to provision integration test table against non-local DynamoDB "
-            f"endpoint {endpoint!r}. This fixture performs a destructive drop+recreate; "
-            f"set DYNAMODB_ENDPOINT to http://localhost:8000 (or a DynamoDB Local URL) "
-            f"before running the integration suite."
+            f"endpoint {endpoint!r} (parsed hostname: {hostname!r}). This fixture "
+            f"performs a destructive drop+recreate; set DYNAMODB_ENDPOINT to "
+            f"http://localhost:8000 (or a DynamoDB Local URL whose hostname is one of "
+            f"{sorted(_SAFE_LOCAL_HOSTS)}) before running the integration suite."
         )
 
     existing = {t.name for t in dynamodb_resource.tables.all()}

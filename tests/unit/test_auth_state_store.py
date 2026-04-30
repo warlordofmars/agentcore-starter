@@ -39,32 +39,57 @@ def fake_table():
         yield table
 
 
-def _attach_log_handler() -> tuple[logging.Logger, logging.Handler, list[logging.LogRecord]]:
-    """Attach a list-backed handler to the state_store logger.
+class _LogCapture:
+    """Context manager that captures records from the state_store logger.
 
     The project's structured logger sets ``propagate=False`` on the
     ``starter`` tree so :data:`pytest`'s ``caplog`` fixture cannot see
     the records via the root logger — mirror the pattern from
     ``tests/integration/test_startup.py``.
 
-    Returns the logger, the specific handler instance (for precise
-    cleanup), and the list the records will accumulate into. The
-    logger level is forced to DEBUG so INFO records always emit
-    regardless of test order — without that pin, an earlier test that
-    triggered ``configure_logging`` could leave the level at INFO or
-    WARNING and silently drop the records this test relies on.
+    On enter: pins the logger level to DEBUG (so INFO records always
+    emit regardless of test order — without that pin, an earlier test
+    that triggered ``configure_logging`` could leave the level at INFO
+    or WARNING and silently drop the records this test relies on) and
+    attaches a list-backed handler.
+
+    On exit: removes the handler **and** restores the logger's prior
+    level so this fixture never leaks global logger state into
+    unrelated tests.
+
+    Usage::
+
+        with _LogCapture() as cap:
+            do_something_that_logs()
+        assert any("not present" in r.getMessage() for r in cap.records)
     """
-    captured: list[logging.LogRecord] = []
 
-    class _ListHandler(logging.Handler):
-        def emit(self, record: logging.LogRecord) -> None:
-            captured.append(record)
+    def __init__(self) -> None:
+        self.records: list[logging.LogRecord] = []
+        self.logger = logging.getLogger("starter.auth.state_store")
+        self._handler: logging.Handler | None = None
+        self._previous_level: int | None = None
 
-    handler = _ListHandler(level=logging.DEBUG)
-    log = logging.getLogger("starter.auth.state_store")
-    log.setLevel(logging.DEBUG)
-    log.addHandler(handler)
-    return log, handler, captured
+    def __enter__(self) -> _LogCapture:
+        captured = self.records
+
+        class _ListHandler(logging.Handler):
+            def emit(self, record: logging.LogRecord) -> None:
+                captured.append(record)
+
+        self._previous_level = self.logger.level
+        self._handler = _ListHandler(level=logging.DEBUG)
+        self.logger.setLevel(logging.DEBUG)
+        self.logger.addHandler(self._handler)
+        return self
+
+    def __exit__(self, *_exc: Any) -> None:
+        if self._handler is not None:
+            self.logger.removeHandler(self._handler)
+            self._handler = None
+        if self._previous_level is not None:
+            self.logger.setLevel(self._previous_level)
+            self._previous_level = None
 
 
 # ── put_state ────────────────────────────────────────────────────────────────
@@ -162,14 +187,11 @@ def test_consume_state_returns_none_on_conditional_check_failed(fake_table):
         operation_name="DeleteItem",
     )
 
-    log, handler, captured = _attach_log_handler()
-    try:
+    with _LogCapture() as cap:
         result = state_store.consume_state("never-existed")
-    finally:
-        log.removeHandler(handler)
 
     assert result is None
-    info_lines = [r for r in captured if r.levelno == logging.INFO]
+    info_lines = [r for r in cap.records if r.levelno == logging.INFO]
     assert any("not present" in r.getMessage() for r in info_lines), (
         f"expected an INFO log mentioning 'not present', got: "
         f"{[r.getMessage() for r in info_lines]}"
@@ -191,14 +213,11 @@ def test_consume_state_returns_none_when_attributes_missing(fake_table):
     """Defensive: ALL_OLD with no Attributes key → treat as not present."""
     fake_table.delete_item.return_value = {}  # no Attributes key
 
-    log, handler, captured = _attach_log_handler()
-    try:
+    with _LogCapture() as cap:
         result = state_store.consume_state("abc")
-    finally:
-        log.removeHandler(handler)
 
     assert result is None
-    info_lines = [r for r in captured if r.levelno == logging.INFO]
+    info_lines = [r for r in cap.records if r.levelno == logging.INFO]
     assert any("no attributes" in r.getMessage() for r in info_lines)
 
 
@@ -218,14 +237,11 @@ def test_consume_state_returns_none_when_expired(fake_table):
         }
     }
 
-    log, handler, captured = _attach_log_handler()
-    try:
+    with _LogCapture() as cap:
         result = state_store.consume_state("stale")
-    finally:
-        log.removeHandler(handler)
 
     assert result is None
-    info_lines = [r for r in captured if r.levelno == logging.INFO]
+    info_lines = [r for r in cap.records if r.levelno == logging.INFO]
     assert any("expired" in r.getMessage() for r in info_lines), (
         f"expected an INFO log mentioning 'expired', got: {[r.getMessage() for r in info_lines]}"
     )
