@@ -97,8 +97,17 @@ def put_state(
 def consume_state(state: str) -> dict[str, Any] | None:
     """Atomically read-and-delete a pending OAuth state.
 
-    Returns the item's stored payload on success, or ``None`` if the
-    state is not present, has already been consumed, or has expired.
+    Returns the full deleted item on success, or ``None`` if the state
+    is not present, has already been consumed, or has expired.
+
+    The returned mapping is the DynamoDB old image from
+    ``ReturnValues=ALL_OLD``. It includes the caller-supplied payload
+    attributes (``nonce``, ``redirect_uri``, etc.) **as well as**
+    reserved storage metadata: ``PK``, ``SK``, ``created_at``, ``ttl``,
+    and ``ttl_seconds``. Callers that only want the payload they
+    originally passed to :func:`put_state` should filter the reserved
+    keys themselves — this layer doesn't strip them so log / metrics
+    code can inspect the metadata when an auth flow fails.
 
     Implemented as a single conditional ``delete_item`` with
     ``ReturnValues=ALL_OLD``. Atomicity comes from DynamoDB's single-key
