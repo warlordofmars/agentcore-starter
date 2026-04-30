@@ -39,13 +39,20 @@ def fake_table():
         yield table
 
 
-def _attach_log_handler() -> tuple[logging.Logger, list[logging.LogRecord]]:
+def _attach_log_handler() -> tuple[logging.Logger, logging.Handler, list[logging.LogRecord]]:
     """Attach a list-backed handler to the state_store logger.
 
     The project's structured logger sets ``propagate=False`` on the
     ``starter`` tree so :data:`pytest`'s ``caplog`` fixture cannot see
     the records via the root logger — mirror the pattern from
     ``tests/integration/test_startup.py``.
+
+    Returns the logger, the specific handler instance (for precise
+    cleanup), and the list the records will accumulate into. The
+    logger level is forced to DEBUG so INFO records always emit
+    regardless of test order — without that pin, an earlier test that
+    triggered ``configure_logging`` could leave the level at INFO or
+    WARNING and silently drop the records this test relies on.
     """
     captured: list[logging.LogRecord] = []
 
@@ -55,8 +62,9 @@ def _attach_log_handler() -> tuple[logging.Logger, list[logging.LogRecord]]:
 
     handler = _ListHandler(level=logging.DEBUG)
     log = logging.getLogger("starter.auth.state_store")
+    log.setLevel(logging.DEBUG)
     log.addHandler(handler)
-    return log, captured
+    return log, handler, captured
 
 
 # ── put_state ────────────────────────────────────────────────────────────────
@@ -154,11 +162,11 @@ def test_consume_state_returns_none_on_conditional_check_failed(fake_table):
         operation_name="DeleteItem",
     )
 
-    log, captured = _attach_log_handler()
+    log, handler, captured = _attach_log_handler()
     try:
         result = state_store.consume_state("never-existed")
     finally:
-        log.removeHandler(log.handlers[-1])
+        log.removeHandler(handler)
 
     assert result is None
     info_lines = [r for r in captured if r.levelno == logging.INFO]
@@ -183,11 +191,11 @@ def test_consume_state_returns_none_when_attributes_missing(fake_table):
     """Defensive: ALL_OLD with no Attributes key → treat as not present."""
     fake_table.delete_item.return_value = {}  # no Attributes key
 
-    log, captured = _attach_log_handler()
+    log, handler, captured = _attach_log_handler()
     try:
         result = state_store.consume_state("abc")
     finally:
-        log.removeHandler(log.handlers[-1])
+        log.removeHandler(handler)
 
     assert result is None
     info_lines = [r for r in captured if r.levelno == logging.INFO]
@@ -210,11 +218,11 @@ def test_consume_state_returns_none_when_expired(fake_table):
         }
     }
 
-    log, captured = _attach_log_handler()
+    log, handler, captured = _attach_log_handler()
     try:
         result = state_store.consume_state("stale")
     finally:
-        log.removeHandler(log.handlers[-1])
+        log.removeHandler(handler)
 
     assert result is None
     info_lines = [r for r in captured if r.levelno == logging.INFO]
@@ -305,9 +313,11 @@ def test_get_table_uses_env_vars(monkeypatch):
 
 
 def test_get_table_uses_defaults_when_env_unset(monkeypatch):
+    """No region env var set → region_name not passed; boto3 uses ~/.aws/config."""
     monkeypatch.delenv("STARTER_TABLE_NAME", raising=False)
     monkeypatch.delenv("DYNAMODB_ENDPOINT", raising=False)
     monkeypatch.delenv("AWS_REGION", raising=False)
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
 
     captured: dict[str, Any] = {}
 
@@ -324,5 +334,28 @@ def test_get_table_uses_defaults_when_env_unset(monkeypatch):
         state_store._get_table()
 
     assert captured["table_name"] == "agentcore-starter-dev"
-    assert captured["kwargs"]["region_name"] == "us-east-1"
+    assert "region_name" not in captured["kwargs"]
     assert captured["kwargs"]["endpoint_url"] is None
+
+
+def test_get_table_falls_back_to_aws_default_region(monkeypatch):
+    """``AWS_DEFAULT_REGION`` is honoured when ``AWS_REGION`` is unset."""
+    monkeypatch.delenv("AWS_REGION", raising=False)
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "eu-west-1")
+    monkeypatch.setenv("STARTER_TABLE_NAME", "tbl")
+    monkeypatch.delenv("DYNAMODB_ENDPOINT", raising=False)
+
+    captured: dict[str, Any] = {}
+
+    class _FakeResource:
+        def Table(self, name: str) -> str:
+            return name
+
+    def _fake_resource(service: str, **kwargs: Any) -> _FakeResource:
+        captured["kwargs"] = kwargs
+        return _FakeResource()
+
+    with patch.object(state_store.boto3, "resource", side_effect=_fake_resource):
+        state_store._get_table()
+
+    assert captured["kwargs"]["region_name"] == "eu-west-1"

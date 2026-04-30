@@ -43,13 +43,21 @@ def _get_table() -> Any:
 
     Resolved at call time (not import time) so test fixtures that set
     ``STARTER_TABLE_NAME`` / ``DYNAMODB_ENDPOINT`` after the module is
-    imported still take effect. Mirrors the StarterStorage pattern
-    documented in src/starter/README.md.
+    imported still take effect.
+
+    Region resolution follows boto3 precedence: ``AWS_REGION`` →
+    ``AWS_DEFAULT_REGION`` → ``~/.aws/config``. We only pass
+    ``region_name`` when one of the env vars is explicitly set so
+    local dev and CI inherit the configured default naturally —
+    matches the pattern in :mod:`starter.agents.bedrock`.
     """
     table_name = os.environ.get("STARTER_TABLE_NAME", "agentcore-starter-dev")
     endpoint_url = os.environ.get("DYNAMODB_ENDPOINT")  # set for DynamoDB Local
-    region = os.environ.get("AWS_REGION", "us-east-1")
-    dynamodb = boto3.resource("dynamodb", region_name=region, endpoint_url=endpoint_url)
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
+    kwargs: dict[str, Any] = {"endpoint_url": endpoint_url}
+    if region:
+        kwargs["region_name"] = region
+    dynamodb = boto3.resource("dynamodb", **kwargs)
     return dynamodb.Table(table_name)
 
 
