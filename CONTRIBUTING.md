@@ -69,6 +69,8 @@ uv run inv pre-push
 
 E2E tests run against a deployed environment and are handled by CI after merging to `development`. See [tests/README.md](tests/README.md) for details.
 
+CI also runs a SonarCloud quality-gate scan in the `Coverage Report` job — the scan is skipped cleanly when `SONAR_TOKEN` is unset (typical on a fresh fork), so the rest of the pipeline still runs; see Phase 4.5 of [`.claude/agents/onboarding.md`](.claude/agents/onboarding.md) for the full SonarCloud bootstrap including the new-code baseline definition (#54).
+
 ## Code style
 
 - **Python**: [ruff](https://docs.astral.sh/ruff/) for lint + format, [mypy](https://mypy-lang.org/) for type checking
