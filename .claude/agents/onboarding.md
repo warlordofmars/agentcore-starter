@@ -375,9 +375,13 @@ When `SONAR_TOKEN` is unset, the workflow's "Check SonarCloud configured" gate s
 2. Click **+** (top-right) → **Analyze new project**.
 3. Select your GitHub organisation and the forked repo. If the org isn't listed, install the SonarCloud GitHub App on it first.
 4. Choose the **Free plan** if prompted (works for public repos).
-5. Note the project key — for warlordofmars/agentcore-starter it's `warlordofmars_agentcore-starter`. Yours will follow the same `<org>_<repo>` convention.
+5. Note both the SonarCloud **project key** and **organisation**. For warlordofmars/agentcore-starter the project key is `warlordofmars_agentcore-starter` and the organisation is `warlordofmars`. Yours will usually follow the same `<org>_<repo>` project-key convention and use your fork owner as the SonarCloud organisation.
 
-If your project key differs from `warlordofmars_agentcore-starter`, update `sonar-project.properties` (or `pom.xml`/`build.gradle` if those exist) AND the SARIF-fetch curl in `.github/workflows/ci.yml` (the `projectKeys=` query param) to match.
+If your SonarCloud project key or organisation differs from the template defaults, update **all three** locations so the scanner, the API fetch, and the project record stay in sync:
+
+1. `sonar-project.properties` — both `sonar.projectKey` and `sonar.organization`. Forks miss this most often: leaving `sonar.organization=warlordofmars` unchanged makes the scan fail with a 404-style organisation-mismatch error even when the project key and token are correct.
+2. `.github/workflows/ci.yml` — the SARIF-fetch curl's `projectKeys=` query param must match the `sonar.projectKey` value above.
+3. (If applicable) `pom.xml` / `build.gradle` — same `sonar.projectKey` / `sonar.organization` if those build configs are present.
 
 ### 4.5b. Generate SONAR_TOKEN and set it as a GitHub secret
 

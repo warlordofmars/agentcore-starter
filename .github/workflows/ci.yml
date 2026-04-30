@@ -335,11 +335,18 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
-          if [ -z "${SONAR_TOKEN:-}" ]; then
-            echo "::warning title=SonarCloud skipped::SONAR_TOKEN is not set — SonarCloud scan skipped. Fresh fork? See .claude/agents/onboarding.md Phase 4.5. Canonical repo? The secret may have been accidentally deleted (issue #54)."
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-          elif [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
+          # Order matters: check Dependabot first. Dependabot PRs run
+          # with no access to repo secrets, so SONAR_TOKEN is also empty
+          # there — if the empty-token branch ran first it would emit a
+          # misleading "secret may have been accidentally deleted"
+          # warning on every Dependabot PR. The Dependabot path is the
+          # expected/known case; the empty-token-on-non-Dependabot path
+          # is the surfaced one.
+          if [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
             echo "Dependabot PR — skipping SonarCloud steps (no secret access, see #120)."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          elif [ -z "${SONAR_TOKEN:-}" ]; then
+            echo "::warning title=SonarCloud skipped::SONAR_TOKEN is not set — SonarCloud scan skipped. Fresh fork? See .claude/agents/onboarding.md Phase 4.5. Canonical repo? The secret may have been accidentally deleted (issue #54)."
             echo "configured=false" >> "$GITHUB_OUTPUT"
           else
             echo "SonarCloud is configured — scan will run."
