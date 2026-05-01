@@ -101,6 +101,10 @@ uv sync --all-extras       # sync all deps from lockfile
 - Every PR must reference the associated GitHub issue: `Closes #NNN`
 - Squash merge to `development`; `--merge` commits for `development → main` releases
 
+## Branch protection snapshot
+
+`infra/branch-protection.expected.json` is the canonical record of the template repo's branch protection (`main`, `development`) and merge settings. The `Branch Protection Drift Check` workflow (`.github/workflows/protection-drift.yml`) runs weekly and on every push to `development` that touches the snapshot, comparing the file to the live GitHub state and failing on any drift. If you intentionally change protection or merge settings, refresh the snapshot in the same PR by re-fetching the relevant API responses (`gh api /repos/{owner}/{repo}` for repo settings, `gh api /repos/{owner}/{repo}/branches/{branch}/protection` for each protected branch) and merging the new fields back into the file.
+
 ## What makes a good PR
 
 - Focused — one thing per PR
