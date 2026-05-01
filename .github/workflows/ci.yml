@@ -564,9 +564,10 @@ jobs:
     env:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     outputs:
-      
+
       api_url: ${{ steps.urls.outputs.api_url }}
       ui_url: ${{ steps.urls.outputs.ui_url }}
+      public_url: ${{ steps.urls.outputs.public_url }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
 
@@ -616,6 +617,13 @@ jobs:
           echo "api_url_direct=$(query ApiFunctionUrl)" >> "$GITHUB_OUTPUT"
           echo "api_url=$(query ApiFunctionUrl)"  >> "$GITHUB_OUTPUT"
           echo "ui_url=$(query UiUrl)"            >> "$GITHUB_OUTPUT"
+          # public_url is the CloudFront distribution URL — the same edge
+          # endpoint that serves the UI, which CloudFront also routes to
+          # the API origin under /api, /auth, /oauth, /.well-known, /health.
+          # Smoke tests hit this so they exercise the full edge path
+          # (CloudFront injects X-Origin-Verify, which the Lambda's
+          # _verify_origin_secret middleware requires — see #127).
+          echo "public_url=$(query UiUrl)"        >> "$GITHUB_OUTPUT"
 
       - name: Notify Slack — deploy success
         if: env.SLACK_WEBHOOK_URL != ''
@@ -671,12 +679,19 @@ jobs:
       # strip-down. Until proper e2e suites are reauthored against the
       # current API/UI surface (tracked separately), this job runs a
       # single smoke check against the deployed dev API — green smoke
-      # proves the Lambda is up and the Function URL is reachable from
-      # the runner, validating the full deploy → reachability chain.
+      # proves the Lambda is up and reachable through CloudFront from
+      # the runner, validating the full edge → Lambda chain (see #127).
       # Mirrors the e2e-prod "Smoke test prod API" precedent below.
       - name: Smoke test dev API
         env:
-          STARTER_API_URL: ${{ needs.deploy-dev.outputs.api_url }}
+          # Hit the CloudFront distribution, NOT the Lambda Function URL
+          # directly. CloudFront injects the X-Origin-Verify header that
+          # the Lambda's _verify_origin_secret middleware requires (see #127);
+          # bypassing CloudFront returns 403. CloudFront's /health behaviour
+          # forwards to the API origin, so /health is reachable through
+          # the edge. Hitting through CloudFront also validates the full
+          # edge path the way real traffic flows.
+          STARTER_PUBLIC_URL: ${{ needs.deploy-dev.outputs.public_url }}
         run: |
           # /health must return JSON with .status == 'ok' on a healthy
           # Lambda. AWSLWA returns HTTP 200 even on init failure (the
@@ -688,7 +703,7 @@ jobs:
           # -sS surfaces curl-side errors (DNS/TLS/connectivity) instead
           # of silently hiding them; --connect-timeout / --max-time
           # prevent indefinite hangs.
-          RESPONSE=$(curl -sS --connect-timeout 5 --max-time 15 -w "\nHTTP_CODE:%{http_code}" "${STARTER_API_URL%/}/health")
+          RESPONSE=$(curl -sS --connect-timeout 5 --max-time 15 -w "\nHTTP_CODE:%{http_code}" "${STARTER_PUBLIC_URL%/}/health")
           STATUS=$(printf '%s\n' "$RESPONSE" | tail -n 1 | sed 's/^HTTP_CODE://')
           BODY=$(printf '%s\n' "$RESPONSE" | sed '$d')
           echo "Health check status: $STATUS"
@@ -767,9 +782,10 @@ jobs:
     env:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     outputs:
-      
+
       api_url: ${{ steps.urls.outputs.api_url }}
       ui_url: ${{ steps.urls.outputs.ui_url }}
+      public_url: ${{ steps.urls.outputs.public_url }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
 
@@ -820,6 +836,13 @@ jobs:
           echo "api_url_direct=$(query ApiFunctionUrl)" >> "$GITHUB_OUTPUT"
           echo "api_url=$(query ApiFunctionUrl)"  >> "$GITHUB_OUTPUT"
           echo "ui_url=$(query UiUrl)"            >> "$GITHUB_OUTPUT"
+          # public_url is the CloudFront distribution URL — the same edge
+          # endpoint that serves the UI, which CloudFront also routes to
+          # the API origin under /api, /auth, /oauth, /.well-known, /health.
+          # Smoke tests hit this so they exercise the full edge path
+          # (CloudFront injects X-Origin-Verify, which the Lambda's
+          # _verify_origin_secret middleware requires — see #127).
+          echo "public_url=$(query UiUrl)"        >> "$GITHUB_OUTPUT"
 
       - name: Notify Slack — deploy success
         if: env.SLACK_WEBHOOK_URL != ''
@@ -872,7 +895,14 @@ jobs:
       # Run a lightweight smoke test instead — just verify the prod API is up.
       - name: Smoke test prod API
         env:
-          STARTER_API_URL: ${{ needs.deploy-prod.outputs.api_url }}
+          # Hit the CloudFront distribution, NOT the Lambda Function URL
+          # directly. CloudFront injects the X-Origin-Verify header that
+          # the Lambda's _verify_origin_secret middleware requires (see #127);
+          # bypassing CloudFront returns 403. CloudFront's /health behaviour
+          # forwards to the API origin, so /health is reachable through
+          # the edge. Hitting through CloudFront also validates the full
+          # edge path the way real traffic flows.
+          STARTER_PUBLIC_URL: ${{ needs.deploy-prod.outputs.public_url }}
         run: |
           # /health must return JSON with .status == 'ok' on a healthy
           # Lambda. AWSLWA returns HTTP 200 even on init failure (the
@@ -884,7 +914,7 @@ jobs:
           # -sS surfaces curl-side errors (DNS/TLS/connectivity) instead
           # of silently hiding them; --connect-timeout / --max-time
           # prevent indefinite hangs.
-          RESPONSE=$(curl -sS --connect-timeout 5 --max-time 15 -w "\nHTTP_CODE:%{http_code}" "${STARTER_API_URL%/}/health")
+          RESPONSE=$(curl -sS --connect-timeout 5 --max-time 15 -w "\nHTTP_CODE:%{http_code}" "${STARTER_PUBLIC_URL%/}/health")
           STATUS=$(printf '%s\n' "$RESPONSE" | tail -n 1 | sed 's/^HTTP_CODE://')
           BODY=$(printf '%s\n' "$RESPONSE" | sed '$d')
           echo "Health check status: $STATUS"
