@@ -46,9 +46,16 @@ actually rolled.
 
 CloudFront fronts the Lambda Function URL but does **not** cache
 `/health` responses (the path is in the no-cache behaviour set so a
-stale `200` can't mask a sick origin). No application-side rate limit
-is applied — `/health` is intentionally cheap (no DynamoDB calls, no
-Bedrock calls) so a flood of probes is a non-event.
+stale `200` can't mask a sick origin). No application-side rate
+limit is applied — `/health` is intentionally cheap (no DynamoDB
+calls, no Bedrock calls) so a flood of probes is a non-event at the
+handler.
+
+The CloudFront WebACL still applies a **global per-IP rate limit of
+1000 requests / 5 minutes** (the `GlobalRateLimit` rule in
+`infra/stacks/starter_stack.py`), so a single IP that floods
+`/health` will be blocked at the edge before it reaches the Lambda
+even though no endpoint-specific limit is defined.
 
 ## `POST /api/csp-report`
 
@@ -56,7 +63,9 @@ CSP violation receiver. Browsers POST violation reports here when a
 resource is blocked (or would be blocked under
 `Content-Security-Policy-Report-Only`). Each report emits a
 `WARNING`-level log line (with the violation's directive and blocked
-URI in the message string) and a `CSPViolations` EMF metric. See
+URI in the message string) and two `CSPViolations` EMF metric
+emissions (one undimensioned counter, one with `directive` +
+`blocked_domain` dimensions). See
 [What gets logged and emitted](#what-gets-logged-and-emitted) below
 for the full picture, including which structured fields are parsed
 but not yet forwarded to CloudWatch Logs.
@@ -142,16 +151,19 @@ without giving the browser anything actionable.
 | Control | Current | Planned |
 | --- | --- | --- |
 | Body cap | None at the FastAPI layer (Lambda Function URL caps at 6 MB) | 8 KiB per request |
-| Per-IP rate limit | None | 60 requests / 5 minutes per source IP |
+| Per-IP rate limit (endpoint-specific) | None | 60 requests / 5 minutes per source IP |
+| Per-IP rate limit (edge / WebACL) | 1000 requests / 5 minutes (global `GlobalRateLimit` rule) | Unchanged — keeps applying alongside the endpoint-specific limit |
 | `blocked_domain` cardinality | Unbounded (any hostname becomes a CloudWatch dimension value) | Bucketed to an allowlist; everything else collapses to `other` |
 
-Until the hardening lands, an attacker who finds the endpoint can
-inflate CloudWatch costs by spamming reports with arbitrary
-`blocked-uri` values. The endpoint does still gate at the JSON-parse
-step (malformed bodies return 204 without emitting any metric) and at
-the `csp-violation` type check (modern-format reports of unrelated
-types are dropped), so the attack surface is bounded to "POST a
-mostly-valid report at high QPS".
+Until the endpoint-specific hardening lands, the only abuse-protection
+in front of `/api/csp-report` is the WebACL global rate limit (1000
+req / 5 min per IP). An attacker who stays under that ceiling can
+still inflate CloudWatch costs by spamming reports with arbitrary
+`blocked-uri` values. The endpoint does gate at the JSON-parse step
+(malformed bodies return 204 without emitting any metric) and at the
+`csp-violation` type check (modern-format reports of unrelated types
+are dropped), so the attack surface is bounded to "POST a mostly-valid
+report at up to 1000 req / 5 min per IP".
 
 ## See also
 
