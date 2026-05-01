@@ -200,9 +200,11 @@ def _diff(expected: Any, actual: Any, path: str = "") -> list[str]:
         actual_keys = set(actual_dict.keys())
 
         for missing in sorted(expected_keys - actual_keys):
-            diffs.append(f"{path}.{missing}: missing in live state")
+            missing_path = f"{path}.{missing}" if path else missing
+            diffs.append(f"{missing_path}: missing in live state")
         for extra in sorted(actual_keys - expected_keys):
-            diffs.append(f"{path}.{extra}: present in live state but not in snapshot")
+            extra_path = f"{path}.{extra}" if path else extra
+            diffs.append(f"{extra_path}: present in live state but not in snapshot")
         for shared in sorted(expected_keys & actual_keys):
             sub_path = f"{path}.{shared}" if path else shared
             diffs.extend(_diff(expected[shared], actual_dict[shared], sub_path))

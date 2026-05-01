@@ -338,6 +338,20 @@ def test_diff_detects_root_type_mismatch_uses_root_label():
     assert any("<root>" in d and "type mismatch" in d for d in diffs)
 
 
+def test_diff_root_missing_key_omits_leading_dot():
+    """A missing key at the root level emits `branches: ...`, not `.branches: ...`."""
+    diffs = drift._diff({"branches": {}}, {})
+    assert any(d.startswith("branches: missing in live state") for d in diffs)
+    assert not any(d.startswith(".branches") for d in diffs)
+
+
+def test_diff_root_extra_key_omits_leading_dot():
+    """An extra key at the root level emits `branches: ...`, not `.branches: ...`."""
+    diffs = drift._diff({}, {"branches": {}})
+    assert any(d.startswith("branches: present in live state but not in snapshot") for d in diffs)
+    assert not any(d.startswith(".branches") for d in diffs)
+
+
 def test_diff_detects_list_length_change():
     diffs = drift._diff([1, 2, 3], [1, 2], path="items")
     assert any("list length differs" in d for d in diffs)
