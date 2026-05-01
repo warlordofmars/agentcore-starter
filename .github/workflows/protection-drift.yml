@@ -18,8 +18,8 @@
 #   for an opt-in `BRANCH_PROTECTION_TOKEN` secret (a fine-grained PAT
 #   with `Administration: Read`) and skips gracefully when it isn't
 #   present. Forks that want the drift check to actually run should add
-#   that secret per the README (TODO: add the README pointer once the
-#   secret is documented).
+#   that secret per the instructions in `CONTRIBUTING.md`
+#   (§"Branch protection snapshot").
 #
 # Why a workflow-level skip rather than failing loudly:
 #   The whole point of #52 is to keep template hygiene high without
