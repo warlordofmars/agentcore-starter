@@ -1,4 +1,4 @@
-# Sessions & memory
+# Sessions
 
 ## How sessions work
 
