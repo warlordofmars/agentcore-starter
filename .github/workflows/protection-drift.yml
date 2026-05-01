@@ -1,0 +1,58 @@
+# Copyright (c) 2026 John Carter. All rights reserved.
+# Detect drift between `infra/branch-protection.expected.json` and the live
+# branch-protection / repo-merge state on GitHub. Issue #52: without this
+# guardrail, someone editing protection in the GitHub UI without updating
+# the snapshot leaves onboarding's Phase 1.5 verification step producing
+# false negatives for forks.
+#
+# Trigger surface:
+#   - Weekly cron — catches drift even when no PRs are open
+#   - Push to development — catches snapshot edits as soon as they land
+#   - workflow_dispatch — manual re-check when investigating drift reports
+#
+# Permissions: reading branch protection requires `administration: read`,
+# which is NOT in the default GITHUB_TOKEN scope set. Granting it here
+# (read-only) is sufficient — the script only reads, never writes.
+name: Branch Protection Drift Check
+
+on:
+  schedule:
+    - cron: "0 7 * * 1" # Every Monday at 07:00 UTC (1h after the security scan)
+  push:
+    branches:
+      - development
+    paths:
+      - "infra/branch-protection.expected.json"
+      - "scripts/check_branch_protection_drift.py"
+      - ".github/workflows/protection-drift.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # `administration: read` is required to call
+  # `GET /repos/{owner}/{repo}/branches/{branch}/protection`. The default
+  # GITHUB_TOKEN scope set does not include this; declaring it here is
+  # the minimum elevation required.
+  administration: read
+
+jobs:
+  drift:
+    name: Detect snapshot drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "latest"
+
+      - name: Run drift check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Use uv run so the script picks up the project's Python version.
+          # The script has no third-party deps — stdlib + `gh` only.
+          uv run python scripts/check_branch_protection_drift.py \
+            --owner "${GITHUB_REPOSITORY%%/*}" \
+            --repo  "${GITHUB_REPOSITORY##*/}"
