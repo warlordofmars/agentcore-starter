@@ -147,4 +147,26 @@ describe("AuthCallback", () => {
       expect(screen.getByText("Token exchange failed.")).toBeTruthy();
     });
   });
+
+  it("falls back to empty error object when json() rejects on failure", async () => {
+    // Drives the `.catch(() => ({}))` arrow on the failed-response path
+    // — vitest 4's AST-aware coverage remapping counts the catch arrow
+    // as a separately-coverable function, so the suite must exercise it.
+    stubLocation("?code=bad-code&state=s");
+    _session["oauth_state"] = "s";
+    _session["pkce_verifier"] = "verifier";
+    _storage["starter_client_id"] = "client-1";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        json: () => Promise.reject(new Error("malformed json")),
+      }),
+    );
+
+    await act(async () => render(<AuthCallback />));
+    await waitFor(() => {
+      expect(screen.getByText("Token exchange failed.")).toBeTruthy();
+    });
+  });
 });

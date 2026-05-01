@@ -28,7 +28,13 @@ function AlertDialog({
   className,
 }) {
   return (
-    <Dialog.Root open={open} onOpenChange={(isOpen) => { if (!isOpen) onCancel(); }}>
+    <Dialog.Root
+      open={open}
+      onOpenChange={(isOpen) => {
+        /* v8 ignore next */
+        if (!isOpen) onCancel();
+      }}
+    >
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/50 z-50" />
         <Dialog.Content

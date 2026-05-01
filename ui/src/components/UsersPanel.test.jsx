@@ -448,4 +448,79 @@ describe("UsersPanel", () => {
       storage_bytes_limit: 52428800,
     });
   });
+
+  // The tests below drive in-flight loading states that vitest 4's
+  // AST-aware coverage remapping flags as separate branches. Use
+  // deferred promises so the loading state stays observable.
+
+  it("shows 'Loading…' on the Load more button while fetching", async () => {
+    let resolveSecond;
+    const secondPromise = new Promise((r) => {
+      resolveSecond = r;
+    });
+    api.listUsers
+      .mockResolvedValueOnce({ items: SAMPLE_USERS, has_more: true, next_cursor: "tok1" })
+      .mockReturnValueOnce(secondPromise);
+    await act(async () => render(<UsersPanel />));
+    fireEvent.click(screen.getByText("Load more"));
+    // Button label flips to "Loading…" while the fetch is in flight.
+    await waitFor(() => expect(screen.getByText("Loading…")).toBeTruthy());
+    // Resolve and await full settlement — vitest 4 is strict about
+    // pending state updates after the test body returns. Wait for the
+    // button label to flip back so handleLoadMore's finally{} has run.
+    await act(async () => {
+      resolveSecond({ items: [], has_more: false, next_cursor: null });
+      await secondPromise;
+    });
+    await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
+  });
+
+  it("shows 'Loading stats…' while detail panel stats are in flight", async () => {
+    let resolveStats;
+    const statsPromise = new Promise((r) => {
+      resolveStats = r;
+    });
+    api.listUsers.mockResolvedValue({ items: SAMPLE_USERS });
+    api.getUserStats.mockReturnValue(statsPromise);
+    api.getUserLimits.mockResolvedValue(null);
+    await act(async () => render(<UsersPanel />));
+    fireEvent.click(screen.getByText("alice@example.com"));
+    // statsLoading=true branch — "Loading stats…" visible.
+    await waitFor(() => expect(screen.getByText("Loading stats…")).toBeTruthy());
+    // Resolve and await full settlement — vitest 4 is strict about
+    // pending state updates after the test body returns.
+    await act(async () => {
+      resolveStats({ user_id: "u1", memory_count: 0, client_count: 0 });
+      await statsPromise;
+    });
+    await waitFor(() => expect(screen.queryByText("Loading stats…")).toBeNull());
+  });
+
+  it("shows 'Saving…' on the Save limits button while in flight", async () => {
+    let resolveSave;
+    const savePromise = new Promise((r) => {
+      resolveSave = r;
+    });
+    api.listUsers.mockResolvedValue({ items: SAMPLE_USERS });
+    api.getUserStats.mockResolvedValue({ user_id: "u1", memory_count: 0, client_count: 0 });
+    api.getUserLimits.mockResolvedValue({
+      user_id: "u1",
+      memory_limit: 50,
+      storage_bytes_limit: null,
+    });
+    api.updateUserLimits.mockReturnValue(savePromise);
+    await act(async () => render(<UsersPanel />));
+    await act(async () => fireEvent.click(screen.getByText("alice@example.com")));
+    await waitFor(() => expect(screen.getByTestId("limits-section")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("save-limits-btn"));
+    // limitsSaving=true branch — button label is "Saving…".
+    await waitFor(() => expect(screen.getByText("Saving…")).toBeTruthy());
+    // Resolve and await full settlement — vitest 4 is strict about
+    // pending state updates after the test body returns.
+    await act(async () => {
+      resolveSave({ user_id: "u1", memory_limit: 50, storage_bytes_limit: null });
+      await savePromise;
+    });
+    await waitFor(() => expect(screen.queryByText("Saving…")).toBeNull());
+  });
 });
