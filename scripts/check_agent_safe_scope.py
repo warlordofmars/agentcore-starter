@@ -71,7 +71,7 @@ BOUNDED_AREA_GLOBS: dict[str, list[str]] = {
     "auth": ["src/starter/auth/**", "tests/unit/test_auth_*.py", "tests/e2e/test_auth_*.py"],
     "infra": ["infra/**"],
     "ui": ["ui/**"],
-    "documentation": ["docs/**", "docs-site/**", "README.md", "CHANGELOG.md"],
+    "docs": ["docs/**", "docs-site/**", "README.md", "CHANGELOG.md"],
     "ci": [".github/workflows/**", "scripts/**"],
 }
 
