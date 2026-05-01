@@ -52,7 +52,7 @@ the Phase 5 log resolve cleanly.
 | G4 — Small-fix-on-open-PR decision tree | Subsection under new `## Plan-vs-act` H2 (originally landed as `## Delegate-vs-act`; renamed in PR #140 — see Consequences) |
 | G5 — Conflict-of-interest verification | Subsection under new `## Verification protocols` H2 |
 | G6 — Mechanical scope-boundary enforcement | Deferred to #77; placeholder in `## Note on numbering` |
-| G7 — Delegate-vs-act | New `## Plan-vs-act` H2 (originally landed as `## Delegate-vs-act`; renamed in PR #140 — see Consequences) |
+| G7 — Plan-vs-act (originally Delegate-vs-act, renamed in PR #140) | New `## Plan-vs-act` H2 (originally landed as `## Delegate-vs-act`; renamed in PR #140 — see Consequences) |
 | G8 — Epic-close housekeeping | New `## Epic-close housekeeping` H2 |
 | G9 — Content-driven section inclusion | New `## Guidelines` H2 |
 | G10 — Empirical reasoning over rule-letter | New `## Guidelines` H2 (shared with G9) |
