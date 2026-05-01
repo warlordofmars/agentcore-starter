@@ -35,9 +35,12 @@ get the header injected automatically.
 }
 ```
 
-`version` is read from `APP_VERSION` at module import time and reflects
-the deployed package version. Operators can use it as a quick sanity
-check that a deploy actually rolled.
+`version` is computed at module import time and reflects the deployed
+package version. The resolution order is: the `APP_VERSION` environment
+variable if set, otherwise `importlib.metadata.version("agentcore-starter")`,
+otherwise the literal string `"dev"` (the tests-without-an-installed-package
+case). Operators can use it as a quick sanity check that a deploy
+actually rolled.
 
 ### Caching and rate limiting
 
