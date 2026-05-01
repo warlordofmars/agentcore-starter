@@ -287,7 +287,7 @@ def collect_live_state(
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 
-def _load_json_file(path: Path) -> dict[str, Any]:
+def _load_json_file(path: Path) -> Any:
     """
     Read a JSON file from disk. File-access errors (path is a directory,
     permission denied, etc.) and JSON parse errors are surfaced as
