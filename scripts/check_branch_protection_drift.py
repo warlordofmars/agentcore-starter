@@ -153,9 +153,11 @@ def normalize_state(state: dict[str, Any]) -> dict[str, Any]:
     """
     # Defensive: `_load_json_file` will happily parse a top-level list or
     # string, and `_gh_json` could in principle return a non-dict on a
-    # weird API edge case. Treat any non-dict input as empty so the diff
-    # comparator surfaces a single "type mismatch" entry rather than
-    # crashing with an AttributeError on `.get(...)`.
+    # weird API edge case. Treat any non-dict input as the canonical
+    # empty state shape so the rest of the function can safely use
+    # `.get(...)`; the diff will then report missing repo settings /
+    # branches relative to the other side instead of crashing with an
+    # AttributeError.
     if not isinstance(state, dict):
         return {"repo_settings": {}, "branches": {}}
     repo_settings = state.get("repo_settings", {})

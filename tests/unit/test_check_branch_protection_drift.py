@@ -260,8 +260,9 @@ def test_normalize_state_handles_non_dict_branches_value():
 
 def test_normalize_state_handles_non_dict_input():
     """Defensive (Copilot finding): a top-level non-dict (list/string/null)
-    must not crash `.get(...)` — return the canonical empty shape so the
-    diff comparator can surface a clean "type mismatch" entry instead.
+    must not crash `.get(...)` — return the canonical empty shape so
+    downstream comparisons see an empty normalized state with missing
+    repo settings / branches rather than an exception.
     """
     expected = {"repo_settings": {}, "branches": {}}
     assert drift.normalize_state([]) == expected  # type: ignore[arg-type]
