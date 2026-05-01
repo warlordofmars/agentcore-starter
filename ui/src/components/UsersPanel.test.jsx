@@ -465,10 +465,14 @@ describe("UsersPanel", () => {
     fireEvent.click(screen.getByText("Load more"));
     // Button label flips to "Loading…" while the fetch is in flight.
     await waitFor(() => expect(screen.getByText("Loading…")).toBeTruthy());
-    // Resolve so the test cleans up cleanly.
+    // Resolve and await full settlement — vitest 4 is strict about
+    // pending state updates after the test body returns. Wait for the
+    // button label to flip back so handleLoadMore's finally{} has run.
     await act(async () => {
       resolveSecond({ items: [], has_more: false, next_cursor: null });
+      await secondPromise;
     });
+    await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
   });
 
   it("shows 'Loading stats…' while detail panel stats are in flight", async () => {
@@ -483,10 +487,13 @@ describe("UsersPanel", () => {
     fireEvent.click(screen.getByText("alice@example.com"));
     // statsLoading=true branch — "Loading stats…" visible.
     await waitFor(() => expect(screen.getByText("Loading stats…")).toBeTruthy());
-    // Resolve so the test cleans up cleanly.
+    // Resolve and await full settlement — vitest 4 is strict about
+    // pending state updates after the test body returns.
     await act(async () => {
       resolveStats({ user_id: "u1", memory_count: 0, client_count: 0 });
+      await statsPromise;
     });
+    await waitFor(() => expect(screen.queryByText("Loading stats…")).toBeNull());
   });
 
   it("shows 'Saving…' on the Save limits button while in flight", async () => {
@@ -508,9 +515,12 @@ describe("UsersPanel", () => {
     fireEvent.click(screen.getByTestId("save-limits-btn"));
     // limitsSaving=true branch — button label is "Saving…".
     await waitFor(() => expect(screen.getByText("Saving…")).toBeTruthy());
-    // Resolve so the test cleans up cleanly.
+    // Resolve and await full settlement — vitest 4 is strict about
+    // pending state updates after the test body returns.
     await act(async () => {
       resolveSave({ user_id: "u1", memory_limit: 50, storage_bytes_limit: null });
+      await savePromise;
     });
+    await waitFor(() => expect(screen.queryByText("Saving…")).toBeNull());
   });
 });
