@@ -54,6 +54,7 @@ export default defineConfig({
         text: "Operations",
         items: [
           { text: "Security and secrets", link: "/operations/security" },
+          { text: "Operational endpoints", link: "/operations/endpoints" },
         ],
       },
     ],

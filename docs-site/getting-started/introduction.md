@@ -18,3 +18,4 @@ AgentCore Starter is a production-ready template for building AWS-native AI agen
 - [Building agents](/agents/overview) — call the Bedrock endpoints and consume SSE streams
 - [Sessions](/agents/sessions) — multi-turn conversations, session scoping, tool-calling
 - [Security and secrets](/operations/security) — operational secret contracts and rotation procedures
+- [Operational endpoints](/operations/endpoints) — `/health` liveness probe and `/api/csp-report` violation receiver
