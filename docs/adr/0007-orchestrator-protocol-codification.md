@@ -91,7 +91,7 @@ retrospective investigation — Phase 5 observations log references
 "G3", future retrospectives will reference these protocols by
 number. Burying them inside generic sections like `## Halt
 conditions` makes them ungrep-able when a future workflow needs
-to locate "the G7 delegate-vs-act protocol". Dedicated H2s cost
+to locate "the G7 plan-vs-act protocol" (or "delegate-vs-act" — the original H2 name; renamed in PR #140). Dedicated H2s cost
 ~50 lines of TOC weight and earn it back the first time a
 retrospective resolves cleanly.
 
