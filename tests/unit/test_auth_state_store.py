@@ -209,6 +209,61 @@ def test_consume_state_propagates_unexpected_client_error(fake_table):
         state_store.consume_state("abc")
 
 
+def test_consume_state_returns_none_on_validation_exception(fake_table):
+    """Malformed user-supplied state → ValidationException → None.
+
+    State is taken from a query parameter on ``/auth/callback`` and is
+    therefore attacker-controllable. DynamoDB rejects malformed/oversized
+    keys with ``ValidationException``; treating it as "not present" gives
+    the user the same 400 they'd get for an unknown state (correct
+    contract for a bad input), instead of bubbling a 500.
+
+    The log line MUST include the error code (so operators can
+    distinguish this from genuine missing-state in metrics) but MUST NOT
+    include the raw state value (user-controlled, log-injection risk).
+    """
+    raw_state = "evil\nstate-with-injected-newline"
+    fake_table.delete_item.side_effect = ClientError(
+        error_response={
+            "Error": {
+                "Code": "ValidationException",
+                "Message": "The provided key element does not match the schema",
+            }
+        },
+        operation_name="DeleteItem",
+    )
+
+    with _LogCapture() as cap:
+        result = state_store.consume_state(raw_state)
+
+    assert result is None
+
+    info_lines = [r for r in cap.records if r.levelno == logging.INFO]
+    assert any("rejected by DynamoDB validation" in r.getMessage() for r in info_lines), (
+        f"expected an INFO log mentioning 'rejected by DynamoDB validation', "
+        f"got: {[r.getMessage() for r in info_lines]}"
+    )
+
+    # Error code must surface in the record (via extra={...} on the
+    # LogRecord) so operators can distinguish this case in log analysis.
+    assert any(getattr(r, "error_code", None) == "ValidationException" for r in info_lines), (
+        "expected the ValidationException error code on the LogRecord"
+    )
+
+    # Raw state value MUST NOT appear anywhere on the record — neither
+    # in the formatted message nor as an extra attribute. State is
+    # user-controlled and logging it risks log injection (the value
+    # above includes a newline expressly to detect that mistake).
+    for record in info_lines:
+        formatted = record.getMessage()
+        assert raw_state not in formatted, f"raw state value leaked into log message: {formatted!r}"
+        for attr_value in vars(record).values():
+            if isinstance(attr_value, str):
+                assert raw_state not in attr_value, (
+                    f"raw state value leaked into log record attribute: {attr_value!r}"
+                )
+
+
 def test_consume_state_returns_none_when_attributes_missing(fake_table):
     """Defensive: ALL_OLD with no Attributes key → treat as not present."""
     fake_table.delete_item.return_value = {}  # no Attributes key

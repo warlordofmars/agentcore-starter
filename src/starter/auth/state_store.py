@@ -131,12 +131,27 @@ def consume_state(state: str) -> dict[str, Any] | None:
             ReturnValues="ALL_OLD",
         )
     except ClientError as exc:
-        if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+        error_code = exc.response.get("Error", {}).get("Code")
+        if error_code == "ConditionalCheckFailedException":
             # Could be a replay, an already-consumed state, or a TTL sweep.
             # We log INFO (not WARN) — this is an expected auth-flow path,
             # not an exceptional one, but it is worth distinguishing from
             # the "expired" case below for metric / log analysis.
             logger.info("OAuth state not present in store (replay or already consumed)")
+            return None
+        if error_code == "ValidationException":
+            # State is user-supplied (query param on /auth/callback).
+            # Malformed/oversized values trigger DynamoDB
+            # ValidationException — treat the same as "not present" so
+            # the FastAPI layer surfaces a 400 (via the existing None-
+            # return branch) rather than a 500. We log the *error code*
+            # (not the raw state value — user-controlled, log-injection
+            # risk) so operators can still distinguish this case from a
+            # genuine missing-state in metrics / log analysis.
+            logger.info(
+                "OAuth state value rejected by DynamoDB validation; treating as not present",
+                extra={"error_code": error_code},
+            )
             return None
         raise
 
