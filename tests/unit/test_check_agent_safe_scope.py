@@ -769,3 +769,132 @@ def test_fix2_kept_areas_still_resolve():
     for meta in ("dx", "security", "reliability", "observability"):
         assert meta in scope_check.META_AREAS, f"{meta!r} should still be a meta-area"
         assert scope_check.area_label_paths([meta, "priority:p2"]) is None
+
+
+# ── Issue #130: prose-form shape-mismatch detection ──────────────────────────
+#
+# When `## Files to touch` is present but the author wrote it as prose
+# paragraphs (no markdown bullets) containing backtick-quoted paths, the
+# parser returns []. Pre-#130 the gate emitted the generic "empty or
+# malformed" message — which doesn't tell the issue author what to fix.
+# After #130 the gate detects this specific shape and emits a targeted
+# message naming "prose form" and showing the bullet-form fix.
+
+
+def test_evaluate_emits_prose_form_message_when_section_uses_prose():
+    """The exact shape that bit PR #129 (issue #46): a `## Files to touch`
+    section written as prose paragraphs containing backtick-quoted paths,
+    no bullets. The gate must emit the prose-form-specific message instead
+    of the generic 'empty or malformed' string."""
+    body = """## Files to touch
+
+Option A: rename `scripts/check_agent_safe_scope.py` and update
+`tests/unit/test_check_agent_safe_scope.py` to match. Option B:
+update `CLAUDE.md` only.
+
+## Acceptance criteria
+"""
+    v = scope_check.evaluate(body, ["agent-safe"], ["scripts/check_agent_safe_scope.py"])
+    assert v.level == "FAIL"
+    assert v.source == "files-to-touch"
+    assert "prose form" in v.summary
+    # The fix instruction must name the bullet character so the issue
+    # author can act on the message without leaving the CI log.
+    assert "bullet list" in v.summary
+    assert "`-`" in v.summary
+    # The generic "empty or malformed" string must NOT appear — that is
+    # the message we are explicitly replacing for this shape.
+    assert "empty or malformed" not in v.summary
+
+
+def test_evaluate_keeps_generic_empty_message_when_section_truly_empty():
+    """When `## Files to touch` is present but the section body is whitespace-
+    only (no bullets, no backticks, no prose paths), the original generic
+    'empty or malformed' message is the right one — there's nothing to point
+    at as 'prose form'."""
+    body = "## Files to touch\n\n## Acceptance criteria\n"
+    v = scope_check.evaluate(body, ["agent-safe"], ["foo.py"])
+    assert v.level == "FAIL"
+    assert v.source == "files-to-touch"
+    assert "empty or malformed" in v.summary
+    assert "prose form" not in v.summary
+
+
+def test_evaluate_keeps_generic_message_when_section_has_bullets_but_no_paths():
+    """A bullet section that fails to yield any paths (e.g. bullets contain
+    only prose, no backticks and no path-shaped tokens) is the
+    'empty-after-parse' case, not the prose-form case. The detector requires
+    NO bullets to fire — bullets-but-no-paths keeps the generic message so
+    we don't mislead the author into thinking they used the wrong shape
+    when they actually used the right shape but no parseable content."""
+    body = """## Files to touch
+
+- This is just prose with no real paths
+- Another bullet without any path-shaped tokens
+
+## Acceptance criteria
+"""
+    v = scope_check.evaluate(body, ["agent-safe"], ["foo.py"])
+    assert v.level == "FAIL"
+    assert v.source == "files-to-touch"
+    assert "empty or malformed" in v.summary
+    assert "prose form" not in v.summary
+
+
+def test_section_has_prose_form_paths_returns_true_for_prose_with_backtick_paths():
+    section = "Touch `src/foo.py` and `tests/test_foo.py` to make this work.\n"
+    assert scope_check._section_has_prose_form_paths(section) is True
+
+
+def test_section_has_prose_form_paths_returns_false_when_bullets_present():
+    """Even if bullets contain no paths, the presence of bullets means the
+    author used the canonical shape — not the prose-form failure mode."""
+    section = "\n- some bullet without paths\n"
+    assert scope_check._section_has_prose_form_paths(section) is False
+
+
+def test_section_has_prose_form_paths_returns_false_for_prose_without_paths():
+    """Backtick-quoted tokens that aren't path-shaped (no `/`, no extension)
+    don't count — e.g. `bullets`, `prose`, `option A`. Without this filter
+    the detector would fire on any section that mentions a backtick-quoted
+    word."""
+    section = "Choose `bullets` over `prose` for clarity.\n"
+    assert scope_check._section_has_prose_form_paths(section) is False
+
+
+def test_section_has_prose_form_paths_returns_false_for_empty_section():
+    assert scope_check._section_has_prose_form_paths("") is False
+    assert scope_check._section_has_prose_form_paths("   \n\n  ") is False
+
+
+def test_section_has_prose_form_paths_recognises_extension_only_paths():
+    """Top-level files like `tasks.py` (extension, no slash) count as
+    path-shaped — same heuristic as the bullet-fallback parser."""
+    section = "Edit `tasks.py` to add a new invoke task.\n"
+    assert scope_check._section_has_prose_form_paths(section) is True
+
+
+def test_extract_files_to_touch_section_returns_section_text():
+    body = """## Context
+
+intro
+
+## Files to touch
+
+- `foo.py`
+
+## Acceptance criteria
+"""
+    section = scope_check._extract_files_to_touch_section(body)
+    assert section is not None
+    assert "- `foo.py`" in section
+    # Must NOT bleed into the next section.
+    assert "Acceptance criteria" not in section
+    # Must NOT include the heading line itself.
+    assert "Files to touch" not in section
+
+
+def test_extract_files_to_touch_section_returns_none_when_heading_absent():
+    assert scope_check._extract_files_to_touch_section("## Context\n\nstuff\n") is None
+    assert scope_check._extract_files_to_touch_section("") is None
+    assert scope_check._extract_files_to_touch_section(None) is None  # type: ignore[arg-type]

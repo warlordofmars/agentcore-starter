@@ -126,6 +126,67 @@ _BACKTICK_TOKEN_RE = re.compile(r"`([^`]+)`")
 _BULLET_RE = re.compile(r"^\s*[-*+]\s+(.*)$", re.MULTILINE)
 
 
+def _extract_files_to_touch_section(body: str) -> str | None:
+    """
+    Return the text of the `## Files to touch` / `### Files to touch`
+    section (everything between the heading and the next heading of any
+    level), or None if no such heading is present.
+
+    Pulled out so both `parse_files_to_touch` and the prose-form shape
+    detector in `evaluate` operate on the same bounded slice — neither
+    should ever scan the whole issue body, which would risk pulling in
+    unrelated backticks from `## Context` or `## Notes`.
+    """
+    if not body:
+        return None
+
+    heading_match = _FILES_TO_TOUCH_HEADING_RE.search(body)
+    if not heading_match:
+        return None
+
+    section_start = heading_match.end()
+
+    # Find the next heading of any level after our heading — that bounds the
+    # section. If none, the section runs to end-of-body.
+    next_match = _NEXT_HEADING_RE.search(body, pos=section_start)
+    section_end = next_match.start() if next_match else len(body)
+    return body[section_start:section_end]
+
+
+def _section_has_prose_form_paths(section: str) -> bool:
+    """
+    Return True when the `## Files to touch` section contains backtick-
+    quoted path-shaped tokens but no markdown bullets.
+
+    This is the shape-mismatch signal: the issue author wrote the section
+    as prose paragraphs (e.g. "Touch `src/foo.py` and `tests/test_foo.py`")
+    instead of the required bullet form (`- ` / `* ` / `+ `). The parser
+    only walks bullets, so a prose section parses to an empty path list and
+    the gate currently fails with the generic "empty or malformed" message
+    — which doesn't tell the issue author what to fix. This detector lets
+    the gate emit a targeted prose-form message instead.
+
+    "Path-shaped" applies the same heuristic the bullet-fallback path uses
+    (contains `/` OR ends in a `.<letter><word-char>+` extension) — so a
+    prose section like "Option B: choose `bullets`." doesn't trigger the
+    prose-form branch on the bare word `bullets`.
+    """
+    # If the section has any bullets at all, it is NOT prose-form. The
+    # bullet path is the canonical shape; an empty bullet list means the
+    # bullets are present but blank, which the existing "empty or malformed"
+    # message correctly describes.
+    if _BULLET_RE.search(section):
+        return False
+
+    for token in _BACKTICK_TOKEN_RE.findall(section):
+        token = token.strip()
+        if not token:
+            continue
+        if "/" in token or re.search(r"\.[A-Za-z]\w+$", token):
+            return True
+    return False
+
+
 def parse_files_to_touch(body: str) -> list[str] | None:
     """
     Extract the list of allowed paths/globs from an issue body's
@@ -153,20 +214,9 @@ def parse_files_to_touch(body: str) -> list[str] | None:
         - None if no `## Files to touch` / `### Files to touch` heading is
           found (caller falls back to area-label mapping).
     """
-    if not body:
+    section = _extract_files_to_touch_section(body)
+    if section is None:
         return None
-
-    heading_match = _FILES_TO_TOUCH_HEADING_RE.search(body)
-    if not heading_match:
-        return None
-
-    section_start = heading_match.end()
-
-    # Find the next heading of any level after our heading — that bounds the
-    # section. If none, the section runs to end-of-body.
-    next_match = _NEXT_HEADING_RE.search(body, pos=section_start)
-    section_end = next_match.start() if next_match else len(body)
-    section = body[section_start:section_end]
 
     paths: list[str] = []
     for bullet in _BULLET_RE.findall(section):
@@ -442,6 +492,25 @@ def evaluate(
             # with no entries can't gate a diff; falling back to WARN would
             # let any diff pass scope-check trivially by leaving the section
             # blank.
+            #
+            # Issue #130: distinguish the prose-form shape mismatch from a
+            # truly empty section. When the section contains backtick-quoted
+            # path-shaped tokens but no bullets, the author wrote prose
+            # instead of bullets — emit a targeted message naming the shape
+            # and showing the fix, rather than the generic "empty or
+            # malformed" string that doesn't tell them what to do.
+            section = _extract_files_to_touch_section(issue_body or "") or ""
+            if _section_has_prose_form_paths(section):
+                return Verdict(
+                    level="FAIL",
+                    summary=(
+                        '"Files to touch" section is present but uses prose form; '
+                        "rewrite as a bullet list (each path on its own line "
+                        "prefixed with `-`). Bullet form is required so the parser "
+                        "can extract path entries unambiguously."
+                    ),
+                    source="files-to-touch",
+                )
             return Verdict(
                 level="FAIL",
                 summary=(
