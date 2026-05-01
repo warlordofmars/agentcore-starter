@@ -162,10 +162,11 @@ def test_area_label_paths_bounded_area_ui_bare_label():
     assert any(g.startswith("ui/") for g in globs)
 
 
-def test_area_label_paths_bounded_area_documentation():
-    """The live area label is `documentation` (not `docs` — CLAUDE.md
-    taxonomy is forward-looking; the live label set is the ground truth)."""
-    globs = scope_check.area_label_paths(["documentation", "priority:p2"])
+def test_area_label_paths_bounded_area_docs():
+    """The live area label is `docs` (per CLAUDE.md taxonomy — issue #46
+    reconciled the historical `documentation` label to the canonical
+    short-form `docs` matching the rest of the area taxonomy)."""
+    globs = scope_check.area_label_paths(["docs", "priority:p2"])
     assert globs is not None
     assert any(g.startswith("docs/") or g.startswith("docs-site/") for g in globs)
 
@@ -194,7 +195,7 @@ def test_area_label_paths_filters_out_non_area_labels():
             "ui",
             "agent-safe",
             "enhancement",
-            "documentation",
+            "docs",
             "status:ready",
             "priority:p2",
             "size:s",
@@ -752,11 +753,14 @@ def test_implicit_test_glob_in_files_to_touch_does_not_widen_scope():
 
 def test_fix2_kept_areas_still_resolve():
     """Issue #90 Fix 2: the kept area labels (`api`, `auth`, `infra`, `ui`,
-    `documentation`, `ci`) must still resolve to their globs after the
+    `docs`, `ci`) must still resolve to their globs after the
     prune. Live meta-areas (`dx`, `security`, `reliability`,
-    `observability`) must still trigger the meta-area WARN fall-through."""
+    `observability`) must still trigger the meta-area WARN fall-through.
+
+    Note: `documentation` was renamed to `docs` per issue #46 to align with
+    the CLAUDE.md taxonomy."""
     # Bounded areas still map.
-    for area in ("api", "auth", "infra", "ui", "documentation", "ci"):
+    for area in ("api", "auth", "infra", "ui", "docs", "ci"):
         assert area in scope_check.BOUNDED_AREA_GLOBS, f"{area!r} should still map"
     api_globs = scope_check.area_label_paths(["api", "priority:p2"])
     assert api_globs is not None
