@@ -9,9 +9,13 @@ posture looks like today vs after the planned hardening lands.
 
 ## `GET /health`
 
-Lightweight liveness probe used by Lambda warm-up checks and any
-external uptime monitor pointed at the Function URL or CloudFront
-origin.
+Lightweight liveness probe used by Lambda warm-up checks and external
+uptime monitors. External monitors should hit the **CloudFront URL**,
+not the raw Lambda Function URL — the app-wide origin-verify
+middleware (see [Origin verification](/operations/security)) returns
+`403` for any request to the Function URL that doesn't carry the
+shared `X-Origin-Verify` header. Probes routed through CloudFront
+get the header injected automatically.
 
 | Field | Value |
 | --- | --- |
@@ -75,28 +79,44 @@ The endpoint detects the shape from the JSON structure (object vs
 array) rather than the `Content-Type` header, so reports survive
 header munging by intermediaries.
 
-### Logged fields
+### What gets logged and emitted
 
-Each violation is emitted as a `WARNING`-level structured log entry
-with the following fields (truncated to 2 KiB each):
+Each violation produces a `WARNING`-level log line and two CloudWatch
+EMF metric emissions.
 
-```json
-{
-  "violated_directive": "script-src",
-  "effective_directive": "script-src",
-  "blocked_uri": "https://evil.example.com/foo.js",
-  "document_uri": "https://app.example.com/some/page",
-  "source_file": "https://app.example.com/some/page",
-  "line_number": 42,
-  "column_number": 7,
-  "disposition": "enforce"
-}
+**Log line.** The structured JSON formatter only forwards a fixed
+allowlist of `extra=` keys today (see `_JsonFormatter._EXTRA_FIELDS`
+in `src/starter/logging_config.py`), so the violation fields the
+handler attaches via `extra={"csp": ...}` are dropped and do **not**
+appear in CloudWatch Logs. What you see in CloudWatch is just the
+formatted message string, which embeds two of the most useful
+fields:
+
+```text
+CSP violation: script-src blocked https://evil.example.com/foo.js
 ```
 
-Two CloudWatch EMF metrics are emitted per violation: a counter
-(`CSPViolations`) and a dimensioned counter
-(`CSPViolations` with `directive` + `blocked_domain` dimensions) for
-breakdown views.
+The handler does parse and truncate the full set of fields below
+(each capped at 2 KiB) before passing them to the logger, so the
+data is available on the in-memory `LogRecord` — wiring the
+formatter to forward `csp.*` fields is a separate piece of work
+(file an issue if you need the structured form in logs).
+
+| Field | Source |
+| --- | --- |
+| `violated_directive` | `csp-report.violated-directive` (legacy) / `body.effectiveDirective` (modern) |
+| `effective_directive` | `csp-report.effective-directive` (legacy) / `body.effectiveDirective` (modern) |
+| `blocked_uri` | `csp-report.blocked-uri` (legacy) / `body.blockedURL` (modern) |
+| `document_uri` | `csp-report.document-uri` (legacy) / `body.documentURL` (modern) |
+| `source_file` | `csp-report.source-file` (legacy) / `body.sourceFile` (modern) |
+| `line_number` | `csp-report.line-number` (legacy) / `body.lineNumber` (modern) |
+| `column_number` | `csp-report.column-number` (legacy) / `body.columnNumber` (modern) |
+| `disposition` | `csp-report.disposition` (legacy) / `body.disposition` (modern) |
+
+**EMF metrics.** Two `CSPViolations` metrics are emitted per
+violation: an undimensioned counter, and a dimensioned counter with
+`directive` and `blocked_domain` dimensions. The dimensioned form is
+what powers operator breakdown dashboards.
 
 ### Always returns 204
 
@@ -108,17 +128,17 @@ without giving the browser anything actionable.
 
 ### Current rate-limit and body-cap posture
 
-> **Hardening planned under proposal #4** (CSP-report abuse mitigation).
-> The values below describe the **deployed** posture today; the
-> proposal will tighten them when it lands.
+> **Hardening planned** under the CSP-report abuse-mitigation
+> proposal. The values below describe the **deployed** posture
+> today; the planned hardening tightens them when it lands.
 
-| Control | Current | Planned (post-#proposal-4) |
+| Control | Current | Planned |
 | --- | --- | --- |
 | Body cap | None at the FastAPI layer (Lambda Function URL caps at 6 MB) | 8 KiB per request |
 | Per-IP rate limit | None | 60 requests / 5 minutes per source IP |
 | `blocked_domain` cardinality | Unbounded (any hostname becomes a CloudWatch dimension value) | Bucketed to an allowlist; everything else collapses to `other` |
 
-Until #proposal-4 lands, an attacker who finds the endpoint can
+Until the hardening lands, an attacker who finds the endpoint can
 inflate CloudWatch costs by spamming reports with arbitrary
 `blocked-uri` values. The endpoint does still gate at the JSON-parse
 step (malformed bodies return 204 without emitting any metric) and at
