@@ -258,6 +258,17 @@ def test_normalize_state_handles_non_dict_branches_value():
     assert drift.normalize_state({"branches": "weird"})["branches"] == {}
 
 
+def test_normalize_state_handles_non_dict_input():
+    """Defensive (Copilot finding): a top-level non-dict (list/string/null)
+    must not crash `.get(...)` — return the canonical empty shape so the
+    diff comparator can surface a clean "type mismatch" entry instead.
+    """
+    expected = {"repo_settings": {}, "branches": {}}
+    assert drift.normalize_state([]) == expected  # type: ignore[arg-type]
+    assert drift.normalize_state("not-a-dict") == expected  # type: ignore[arg-type]
+    assert drift.normalize_state(None) == expected  # type: ignore[arg-type]
+
+
 # ── Diff ──────────────────────────────────────────────────────────────────────
 
 
@@ -511,6 +522,16 @@ def test_main_malformed_live_file_returns_two(tmp_path, capsys):
     captured = capsys.readouterr()
     assert rc == 2
     assert "failed to parse" in captured.err
+
+
+def test_load_json_file_raises_on_oserror(tmp_path):
+    """Defensive (Copilot finding): an OSError from `path.open` (e.g. the
+    path is a directory) surfaces as `RuntimeError` with the path included.
+    """
+    not_a_file = tmp_path / "is-a-directory"
+    not_a_file.mkdir()
+    with pytest.raises(RuntimeError, match=r"failed to read JSON file .*is-a-directory"):
+        drift._load_json_file(not_a_file)
 
 
 def test_main_snapshot_without_branches_returns_two(tmp_path, capsys):

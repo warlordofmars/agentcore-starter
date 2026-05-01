@@ -151,6 +151,13 @@ def normalize_state(state: dict[str, Any]) -> dict[str, Any]:
           }
         }
     """
+    # Defensive: `_load_json_file` will happily parse a top-level list or
+    # string, and `_gh_json` could in principle return a non-dict on a
+    # weird API edge case. Treat any non-dict input as empty so the diff
+    # comparator surfaces a single "type mismatch" entry rather than
+    # crashing with an AttributeError on `.get(...)`.
+    if not isinstance(state, dict):
+        return {"repo_settings": {}, "branches": {}}
     repo_settings = state.get("repo_settings", {})
     branches = state.get("branches", {})
     # Defensive: a malformed snapshot (e.g. `branches: null` or `branches: []`)
@@ -280,15 +287,18 @@ def collect_live_state(
 
 def _load_json_file(path: Path) -> dict[str, Any]:
     """
-    Read a JSON file from disk. JSON parse errors are surfaced as
-    `RuntimeError` (with the underlying decoder message) so `main` can
-    map them to the documented exit code 2 alongside other usage errors.
+    Read a JSON file from disk. File-access errors (path is a directory,
+    permission denied, etc.) and JSON parse errors are surfaced as
+    `RuntimeError` so `main` can map them to the documented exit code 2
+    alongside other usage errors.
     """
     try:
         with path.open(encoding="utf-8") as f:
             return json.load(f)
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"failed to parse {path} as JSON: {exc}") from exc
+    except OSError as exc:
+        raise RuntimeError(f"failed to read JSON file {path}: {exc}") from exc
 
 
 def main(argv: list[str] | None = None) -> int:
