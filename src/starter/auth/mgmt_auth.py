@@ -3,9 +3,11 @@
 Management UI authentication — Google OAuth login flow for human users.
 
 Issues short-lived management JWTs (typ=mgmt) stored in the browser's
-localStorage.  Pending OAuth state is held in process memory (single Lambda
-instance).  Replace with a DynamoDB-backed store if you need multi-instance
-state sharing.
+localStorage.  Pending OAuth state is persisted in DynamoDB (see
+:mod:`starter.auth.state_store`) so concurrent Lambda containers can
+share state — the previous in-process dict broke under concurrent
+execution because the callback could hit a different warm container
+than the one that issued the state.
 
 Routes:
   GET /auth/login    — redirect to Google (or issue bypass JWT in non-prod)
@@ -17,12 +19,12 @@ from __future__ import annotations
 import html
 import os
 import secrets
-import time
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from starter.auth import state_store
 from starter.auth.google import (
     exchange_google_code,
     google_authorization_url,
@@ -37,10 +39,6 @@ router = APIRouter(tags=["mgmt-auth"])
 logger = get_logger(__name__)
 
 _BYPASS = bool(os.environ.get("STARTER_BYPASS_GOOGLE_AUTH"))
-
-# In-process pending state store: {state: {"expires_at": float, ...}}
-# Replace with DynamoDB for multi-instance deployments.
-_pending_states: dict[str, dict[str, Any]] = {}
 _STATE_TTL_SECONDS = 600  # 10 minutes
 
 # Redirect target after successful login
@@ -53,16 +51,13 @@ def _mgmt_callback_uri() -> str:
 
 def _create_pending_state() -> str:
     state = secrets.token_urlsafe(32)
-    _pending_states[state] = {"expires_at": time.time() + _STATE_TTL_SECONDS}
+    state_store.put_state(state, ttl_seconds=_STATE_TTL_SECONDS)
     return state
 
 
 def _consume_pending_state(state: str) -> bool:
-    """Return True and remove state if valid and not expired."""
-    entry = _pending_states.pop(state, None)
-    if entry is None:
-        return False
-    return time.time() < entry["expires_at"]
+    """Return True if state was present, unexpired, and successfully consumed."""
+    return state_store.consume_state(state) is not None
 
 
 def _html_redirect(jwt_token: str) -> HTMLResponse:

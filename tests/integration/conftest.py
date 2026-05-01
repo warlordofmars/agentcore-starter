@@ -9,8 +9,18 @@ Start it before running: docker run -p 8000:8000 amazon/dynamodb-local:latest
 from __future__ import annotations
 
 import os
+from typing import Any
+from urllib.parse import urlparse
 
+import boto3
 import pytest
+
+# Hosts that are safe targets for the destructive drop+recreate in
+# starter_table. Anything else (including hostnames that merely contain
+# "localhost" as a substring, e.g. ``localhost.evil.com``) must be
+# rejected — the substring form is a footgun, urlparse().hostname is
+# the only correct check.
+_SAFE_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "dynamodb-local"}
 
 # Override AWS creds for DynamoDB Local
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "local")
@@ -24,3 +34,118 @@ os.environ.setdefault("STARTER_TABLE_NAME", "agentcore-starter-test")
 @pytest.fixture(scope="session")
 def table_name() -> str:
     return os.environ["STARTER_TABLE_NAME"]
+
+
+@pytest.fixture(scope="session")
+def dynamodb_resource() -> Any:
+    """Session-scoped DynamoDB resource pointed at DynamoDB Local."""
+    return boto3.resource(
+        "dynamodb",
+        region_name=os.environ["AWS_DEFAULT_REGION"],
+        endpoint_url=os.environ["DYNAMODB_ENDPOINT"],
+    )
+
+
+@pytest.fixture(scope="session")
+def starter_table(dynamodb_resource: Any, table_name: str) -> Any:
+    """Provision the StarterTable in DynamoDB Local for the test session.
+
+    Mirrors the schema declared in :mod:`infra.stacks.starter_stack` —
+    ``PK`` / ``SK`` partition + sort, four GSIs with the
+    ``GSI{1..4}PK`` / ``GSI{1..2}SK`` attribute naming, and the ``ttl``
+    attribute used for TTL sweeps. CDK is not invoked because DynamoDB
+    Local doesn't run CloudFormation; this fixture is the
+    test-environment analogue.
+
+    Drops and recreates the table if it already exists from a previous
+    run so the suite starts clean each session. No table-row cleanup
+    between individual tests — tests use unique state strings to avoid
+    cross-pollution (same pattern as the e2e suite).
+
+    **Safety guard**: the integration env vars at the top of this file
+    are set via ``setdefault()``, which means a developer or CI
+    environment that already has ``STARTER_TABLE_NAME`` /
+    ``DYNAMODB_ENDPOINT`` set could point this fixture at a real
+    DynamoDB endpoint and the destructive drop step below would delete
+    an externally-managed table. We refuse to proceed unless the
+    parsed ``DYNAMODB_ENDPOINT`` hostname is in
+    :data:`_SAFE_LOCAL_HOSTS` — the suite is DynamoDB-Local-only by
+    design. Parsing with ``urlparse`` (rather than substring matching)
+    blocks bypasses like ``http://localhost.evil.com``.
+    """
+    endpoint = os.environ.get("DYNAMODB_ENDPOINT", "")
+    hostname = urlparse(endpoint).hostname
+    if hostname not in _SAFE_LOCAL_HOSTS:
+        raise RuntimeError(
+            f"Refusing to provision integration test table against non-local DynamoDB "
+            f"endpoint {endpoint!r} (parsed hostname: {hostname!r}). This fixture "
+            f"performs a destructive drop+recreate; set DYNAMODB_ENDPOINT to "
+            f"http://localhost:8000 (or a DynamoDB Local URL whose hostname is one of "
+            f"{sorted(_SAFE_LOCAL_HOSTS)}) before running the integration suite."
+        )
+
+    existing = {t.name for t in dynamodb_resource.tables.all()}
+    if table_name in existing:
+        dynamodb_resource.Table(table_name).delete()
+        dynamodb_resource.Table(table_name).wait_until_not_exists()
+
+    dynamodb_resource.create_table(
+        TableName=table_name,
+        AttributeDefinitions=[
+            {"AttributeName": "PK", "AttributeType": "S"},
+            {"AttributeName": "SK", "AttributeType": "S"},
+            {"AttributeName": "GSI1PK", "AttributeType": "S"},
+            {"AttributeName": "GSI1SK", "AttributeType": "S"},
+            {"AttributeName": "GSI2PK", "AttributeType": "S"},
+            {"AttributeName": "GSI2SK", "AttributeType": "S"},
+            {"AttributeName": "GSI3PK", "AttributeType": "S"},
+            {"AttributeName": "GSI4PK", "AttributeType": "S"},
+        ],
+        KeySchema=[
+            {"AttributeName": "PK", "KeyType": "HASH"},
+            {"AttributeName": "SK", "KeyType": "RANGE"},
+        ],
+        BillingMode="PAY_PER_REQUEST",
+        GlobalSecondaryIndexes=[
+            {
+                "IndexName": "KeyIndex",
+                "KeySchema": [
+                    {"AttributeName": "GSI1PK", "KeyType": "HASH"},
+                    {"AttributeName": "GSI1SK", "KeyType": "RANGE"},
+                ],
+                "Projection": {"ProjectionType": "ALL"},
+            },
+            {
+                "IndexName": "TagIndex",
+                "KeySchema": [
+                    {"AttributeName": "GSI2PK", "KeyType": "HASH"},
+                    {"AttributeName": "GSI2SK", "KeyType": "RANGE"},
+                ],
+                "Projection": {"ProjectionType": "ALL"},
+            },
+            {
+                "IndexName": "ClientIndex",
+                "KeySchema": [{"AttributeName": "GSI3PK", "KeyType": "HASH"}],
+                "Projection": {"ProjectionType": "ALL"},
+            },
+            {
+                "IndexName": "UserEmailIndex",
+                "KeySchema": [{"AttributeName": "GSI4PK", "KeyType": "HASH"}],
+                "Projection": {"ProjectionType": "ALL"},
+            },
+        ],
+    )
+
+    table = dynamodb_resource.Table(table_name)
+    table.wait_until_exists()
+
+    # DynamoDB Local doesn't enforce TTL but the API call succeeds. We
+    # set it for parity with the production schema so any test that
+    # asserts on the ``ttl`` attribute name still works the same way.
+    client = dynamodb_resource.meta.client
+    client.update_time_to_live(
+        TableName=table_name,
+        TimeToLiveSpecification={"Enabled": True, "AttributeName": "ttl"},
+    )
+
+    yield table
