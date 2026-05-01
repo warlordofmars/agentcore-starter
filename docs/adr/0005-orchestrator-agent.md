@@ -70,9 +70,11 @@ Add a new `.claude/agents/orchestrator.md` agent that:
 - Accepts named, mechanical directives — `status`, `work next <filter>`,
   `delegate <#N> to <agent>`, `check #N`, `brief #N`, `epic #N` — and
   resolves them against the live state.
-- Delegates to specialists via the `Agent` tool with the right context
-  pre-assembled. Never implements work itself, never files issues
-  directly, never modifies other agents' definitions.
+- Emits delegation plans for the parent main-thread to dispatch to
+  specialists, with the right context pre-assembled. Never spawns
+  sub-agents itself (no `Agent` tool — see Consequences §"Plan-emitting
+  refactor"), never implements work itself, never files issues directly,
+  never modifies other agents' definitions.
 - Halts cleanly on directive ambiguity, unresolved `Blocked by`, the
   bootstrap-pattern halt list (auto-detected via `Part of #56` body
   markers), a red post-merge pipeline, or any work that would require
@@ -89,10 +91,16 @@ Repo state is the source of truth, `gh` is fast, and the existing
 when (and only when) live queries cannot answer the question — which is
 not the case here.
 
-**Tool envelope: read-and-delegate only.** `Bash, Read, Glob, Grep, Agent,
-AskUserQuestion`. No `Edit`, no `Write`. The agent cannot modify code,
-cannot file issues directly, and cannot rewrite other agents — this is
-enforced by the tool list, not by convention alone.
+**Tool envelope: read-and-plan only.** `Bash, Read, Glob, Grep,
+AskUserQuestion`. No `Edit`, no `Write`, no `Agent`. The agent cannot
+modify code, cannot file issues directly, cannot rewrite other agents,
+and cannot spawn sub-agents — this is enforced by the tool list, not
+by convention alone. The original ADR-0005 implementation listed
+`Agent` here; PR #140 dropped it after the Claude Code subagent runtime
+made subagent-from-subagent spawning a silent no-op (see
+Consequences §"Plan-emitting refactor"). Orchestrator now emits a
+structured delegation plan as its canonical output and the parent
+main-thread dispatches.
 
 **`work next <filter>` proposes, does not auto-fire.** It picks an issue,
 prints the prompt that would go to `issue-worker`, and halts for human
@@ -190,3 +198,20 @@ the property the friction observations are asking for.
 - **No production code changes.** Like ADR-0004, this ADR is paired with
   documentation deliverables only. Behaviour changes manifest only when a
   human invokes the new agent.
+
+- **Plan-emitting refactor (PR #140) — harness-constraint reframing.**
+  The original ADR-0005 implementation used the `Agent` tool to dispatch
+  specialists directly. The Claude Code subagent runtime
+  ([docs](https://code.claude.com/docs/en/sub-agents)) forbids
+  subagent-from-subagent spawning, which silently no-ops the dispatch
+  step when orchestrator runs as a subagent (the normal case via
+  `@orchestrator` from a main-thread session). PR #140 reframes the
+  agent as plan-emitting: orchestrator emits a structured delegation
+  plan as its canonical output and the parent main-thread reads the
+  plan and dispatches. The purity thesis (orchestrator behaviour is a
+  pure function of state + directive) is unchanged; only the dispatch
+  boundary moves. The amended Tool envelope and Decision sections above
+  reflect the post-#140 shape; the original "read-and-delegate" framing
+  is preserved in the historical record by the Decision bullet's
+  cross-reference back here. See #139 for the broader subagent
+  tooling-model gap epic.

@@ -49,10 +49,10 @@ the Phase 5 log resolve cleanly.
 | G1 — Surface verbs | New `## Surface verbs` H2 |
 | G2 — Sub-agent IDs / SendMessage handling | Subsection under existing `## Delegation patterns` |
 | G3 — Halt-before-merge modified cycle | New `## Halt-before-merge` H2 |
-| G4 — Small-fix-on-open-PR decision tree | Subsection under new `## Delegate-vs-act` H2 |
+| G4 — Small-fix-on-open-PR decision tree | Subsection under new `## Plan-vs-act` H2 (originally landed as `## Delegate-vs-act`; renamed in PR #140 — see Consequences) |
 | G5 — Conflict-of-interest verification | Subsection under new `## Verification protocols` H2 |
 | G6 — Mechanical scope-boundary enforcement | Deferred to #77; placeholder in `## Note on numbering` |
-| G7 — Delegate-vs-act | New `## Delegate-vs-act` H2 |
+| G7 — Plan-vs-act (originally Delegate-vs-act, renamed in PR #140) | New `## Plan-vs-act` H2 (originally landed as `## Delegate-vs-act`; renamed in PR #140 — see Consequences) |
 | G8 — Epic-close housekeeping | New `## Epic-close housekeeping` H2 |
 | G9 — Content-driven section inclusion | New `## Guidelines` H2 |
 | G10 — Empirical reasoning over rule-letter | New `## Guidelines` H2 (shared with G9) |
@@ -91,7 +91,7 @@ retrospective investigation — Phase 5 observations log references
 "G3", future retrospectives will reference these protocols by
 number. Burying them inside generic sections like `## Halt
 conditions` makes them ungrep-able when a future workflow needs
-to locate "the G7 delegate-vs-act protocol". Dedicated H2s cost
+to locate "the G7 plan-vs-act protocol" (or "delegate-vs-act" — the original H2 name; renamed in PR #140). Dedicated H2s cost
 ~50 lines of TOC weight and earn it back the first time a
 retrospective resolves cleanly.
 
@@ -159,3 +159,16 @@ precedent of a single ADR settling a multi-part contract.
   ADR-0006, this ADR ships docs + agent-definition updates only.
   Behaviour changes manifest the next time the orchestrator is
   invoked.
+
+- **Plan-emitting reframe of G7 (PR #140) — purity thesis preserved.**
+  When the Claude Code subagent runtime
+  ([docs](https://code.claude.com/docs/en/sub-agents)) made
+  subagent-from-subagent spawning a silent no-op, G7 was reframed from
+  "Delegate-vs-act" to "Plan-vs-act" — orchestrator emits a delegation
+  plan for the parent main-thread to dispatch rather than spawning the
+  specialist itself. The protocol's intent is unchanged (route through
+  the appropriate specialist; never act directly); only the mechanism
+  shifted. G1–G6 and G8–G11 are orthogonal to dispatch mechanism and
+  translate unchanged. The placement-table row for G7 is amended above
+  to reflect the renamed H2. See #139 for the broader subagent
+  tooling-model gap epic and #140 for the orchestrator refactor.
