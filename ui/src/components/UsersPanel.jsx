@@ -50,7 +50,8 @@ export default function UsersPanel() {
   }, [load]);
 
   async function loadMore() {
-    if (!nextCursor) return; /* c8 ignore next */
+    /* v8 ignore next */
+    if (!nextCursor) return;
     setLoadingMore(true);
     try {
       const data = await api.listUsers({ cursor: nextCursor });

@@ -91,4 +91,51 @@ describe("ErrorBoundary", () => {
     );
     expect(screen.getByTestId("error-boundary")).toBeTruthy();
   });
+
+  it("componentDidCatch tolerates a missing globalThis.console", () => {
+    // Drives the falsy branch of `if (globalThis.console)` — vitest 4's
+    // AST-aware coverage flags this as a separately-coverable branch even
+    // though the production path always has console available. We can't
+    // simply undefine globalThis.console for the duration of a render —
+    // React itself calls console.error to log caught errors and would
+    // crash. Instead, drive componentDidCatch directly on a freshly-
+    // constructed instance with the global swapped only for the call.
+    const boundary = new ErrorBoundary({ children: null });
+    const originalConsole = globalThis.console;
+    Object.defineProperty(globalThis, "console", {
+      configurable: true,
+      value: undefined,
+    });
+    try {
+      // No-throw is the assertion — the guard short-circuits cleanly.
+      boundary.componentDidCatch(new Error("test"), { componentStack: "" });
+    } finally {
+      Object.defineProperty(globalThis, "console", {
+        configurable: true,
+        value: originalConsole,
+      });
+    }
+  });
+
+  it("handleReload is a no-op when globalThis.location is missing", () => {
+    // Drives the falsy branch of `if (globalThis.location)` in handleReload.
+    // Same pattern as the console test above — invoke the method directly
+    // so we don't have to render through React's commit phase under a
+    // missing-global condition.
+    const boundary = new ErrorBoundary({ children: null });
+    const originalLocation = globalThis.location;
+    Object.defineProperty(globalThis, "location", {
+      configurable: true,
+      value: undefined,
+    });
+    try {
+      // No-throw is the assertion — the guard short-circuits cleanly.
+      boundary.handleReload();
+    } finally {
+      Object.defineProperty(globalThis, "location", {
+        configurable: true,
+        value: originalLocation,
+      });
+    }
+  });
 });
