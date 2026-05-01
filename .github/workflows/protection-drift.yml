@@ -10,9 +10,24 @@
 #   - Push to development — catches snapshot edits as soon as they land
 #   - workflow_dispatch — manual re-check when investigating drift reports
 #
-# Permissions: reading branch protection requires `administration: read`,
-# which is NOT in the default GITHUB_TOKEN scope set. Granting it here
-# (read-only) is sufficient — the script only reads, never writes.
+# Token scope (important):
+#   The default `GITHUB_TOKEN` does not have permission to read branch
+#   protection settings — the `permissions:` block has no `administration:`
+#   key, and `GET /repos/{owner}/{repo}/branches/{branch}/protection`
+#   requires the `administration: read` token scope. The workflow checks
+#   for an opt-in `BRANCH_PROTECTION_TOKEN` secret (a fine-grained PAT
+#   with `Administration: Read`) and skips gracefully when it isn't
+#   present. Forks that want the drift check to actually run should add
+#   that secret per the instructions in `CONTRIBUTING.md`
+#   (§"Branch protection snapshot").
+#
+# Why a workflow-level skip rather than failing loudly:
+#   The whole point of #52 is to keep template hygiene high without
+#   demanding new secrets at fork-time. A loud failure on every push to
+#   `development` would create exactly the kind of false-negative noise
+#   the check was supposed to prevent. A skip-with-notice keeps the
+#   contract honest: when the secret is provided, the check is
+#   authoritative; when it isn't, the workflow says so and exits 0.
 name: Branch Protection Drift Check
 
 on:
@@ -29,11 +44,6 @@ on:
 
 permissions:
   contents: read
-  # `administration: read` is required to call
-  # `GET /repos/{owner}/{repo}/branches/{branch}/protection`. The default
-  # GITHUB_TOKEN scope set does not include this; declaring it here is
-  # the minimum elevation required.
-  administration: read
 
 jobs:
   drift:
@@ -42,13 +52,29 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
 
+      - name: Skip if no PAT secret is configured
+        id: gate
+        env:
+          BRANCH_PROTECTION_TOKEN: ${{ secrets.BRANCH_PROTECTION_TOKEN }}
+        run: |
+          if [ -z "${BRANCH_PROTECTION_TOKEN:-}" ]; then
+            echo "::notice title=Drift check skipped::BRANCH_PROTECTION_TOKEN secret is not set; cannot read branch-protection settings. Add a fine-grained PAT with 'Administration: Read' to enable this check."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        if: steps.gate.outputs.skip == 'false'
         with:
           version: "latest"
 
       - name: Run drift check
+        if: steps.gate.outputs.skip == 'false'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Use the opt-in PAT for the branch-protection API; the default
+          # GITHUB_TOKEN lacks the `administration: read` scope.
+          GH_TOKEN: ${{ secrets.BRANCH_PROTECTION_TOKEN }}
         run: |
           set -euo pipefail
           # Use uv run so the script picks up the project's Python version.

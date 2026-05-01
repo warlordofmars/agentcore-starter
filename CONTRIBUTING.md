@@ -105,6 +105,8 @@ uv sync --all-extras       # sync all deps from lockfile
 
 `infra/branch-protection.expected.json` is the canonical record of the template repo's branch protection (`main`, `development`) and merge settings. The `Branch Protection Drift Check` workflow (`.github/workflows/protection-drift.yml`) runs weekly and on every push to `development` that touches the snapshot, comparing the file to the live GitHub state and failing on any drift. If you intentionally change protection or merge settings, refresh the snapshot in the same PR by re-fetching the relevant API responses (`gh api /repos/{owner}/{repo}` for repo settings, `gh api /repos/{owner}/{repo}/branches/{branch}/protection` for each protected branch) and merging the new fields back into the file.
 
+The drift workflow needs a `BRANCH_PROTECTION_TOKEN` repo secret (a fine-grained PAT with `Administration: Read` on this repo) to read branch protection. Without it, the workflow emits a notice and exits 0 — the default `GITHUB_TOKEN` does not have a workflow-level `administration: read` scope. Forks that want the drift check to actually run should add this secret in **Settings → Secrets and variables → Actions**.
+
 ## What makes a good PR
 
 - Focused — one thing per PR
