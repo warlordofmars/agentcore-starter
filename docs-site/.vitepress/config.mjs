@@ -47,7 +47,7 @@ export default defineConfig({
         text: "Building agents",
         items: [
           { text: "Overview", link: "/agents/overview" },
-          { text: "Sessions & memory", link: "/agents/sessions" },
+          { text: "Sessions", link: "/agents/sessions" },
         ],
       },
       {

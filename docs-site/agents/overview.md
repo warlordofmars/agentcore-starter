@@ -65,7 +65,7 @@ data: {"type": "done", "stop_reason": "end_turn", "input_tokens": 14, "output_to
 
 ## The agent endpoints (Inline Agent)
 
-These use `bedrock-agent-runtime.invoke_inline_agent` — the same model, but with session continuity between turns. See [Sessions & memory](./sessions) for the full conversation flow.
+These use `bedrock-agent-runtime.invoke_inline_agent` — the same model, but with session continuity between turns. See [Sessions](./sessions) for the full conversation flow.
 
 ### `POST /api/agents/invoke`
 
