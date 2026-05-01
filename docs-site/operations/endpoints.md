@@ -51,8 +51,12 @@ Bedrock calls) so a flood of probes is a non-event.
 
 CSP violation receiver. Browsers POST violation reports here when a
 resource is blocked (or would be blocked under
-`Content-Security-Policy-Report-Only`). Each report is logged as
-structured JSON and emits a `CSPViolations` EMF metric.
+`Content-Security-Policy-Report-Only`). Each report emits a
+`WARNING`-level log line (with the violation's directive and blocked
+URI in the message string) and a `CSPViolations` EMF metric. See
+[What gets logged and emitted](#what-gets-logged-and-emitted) below
+for the full picture, including which structured fields are parsed
+but not yet forwarded to CloudWatch Logs.
 
 | Field | Value |
 | --- | --- |
