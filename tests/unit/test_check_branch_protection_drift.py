@@ -249,6 +249,15 @@ def test_normalize_state_defaults_when_keys_missing():
     assert normalized == {"repo_settings": {}, "branches": {}}
 
 
+def test_normalize_state_handles_non_dict_branches_value():
+    """Defensive (Copilot finding): `branches: null` or `branches: []`
+    must not crash `.items()` — treat as empty.
+    """
+    assert drift.normalize_state({"branches": None})["branches"] == {}
+    assert drift.normalize_state({"branches": []})["branches"] == {}
+    assert drift.normalize_state({"branches": "weird"})["branches"] == {}
+
+
 # ── Diff ──────────────────────────────────────────────────────────────────────
 
 
@@ -370,6 +379,18 @@ def test_gh_json_raises_on_nonzero_exit():
         drift._gh_json(["api", "/foo"])
 
 
+def test_gh_json_raises_on_non_json_output():
+    """Defensive (Copilot finding): non-JSON stdout from `gh api`
+    (transient failure, auth issue, rate-limit page) maps to RuntimeError.
+    """
+    fake = mock.Mock(returncode=0, stdout="<html>oops</html>", stderr="")
+    with (
+        mock.patch.object(drift.subprocess, "run", return_value=fake),
+        pytest.raises(RuntimeError, match="returned non-JSON output"),
+    ):
+        drift._gh_json(["api", "/foo"])
+
+
 def test_collect_live_state_composes_calls(monkeypatch):
     calls: list[list[str]] = []
 
@@ -450,6 +471,66 @@ def test_main_missing_live_file_returns_two(tmp_path, capsys):
     captured = capsys.readouterr()
     assert rc == 2
     assert "live-file not found" in captured.err
+
+
+def test_main_malformed_snapshot_returns_two(tmp_path, capsys):
+    """Defensive (Copilot finding): JSON parse error on the snapshot file
+    surfaces as exit code 2 instead of an unhandled traceback.
+    """
+    snapshot = tmp_path / "snapshot.json"
+    snapshot.write_text("{not-json", encoding="utf-8")
+    rc = drift.main(["--snapshot", str(snapshot)])
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "failed to parse" in captured.err
+
+
+def test_main_malformed_live_file_returns_two(tmp_path, capsys):
+    """Defensive (Copilot finding): JSON parse error on the live-file
+    surfaces as exit code 2.
+    """
+    snapshot = tmp_path / "snapshot.json"
+    live = tmp_path / "live.json"
+    _write_json(snapshot, _make_state())
+    live.write_text("not-json", encoding="utf-8")
+    rc = drift.main(["--snapshot", str(snapshot), "--live-file", str(live)])
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "failed to parse" in captured.err
+
+
+def test_main_snapshot_without_branches_returns_two(tmp_path, capsys):
+    """Defensive (Copilot finding): a snapshot that lacks a usable
+    `branches` map cannot drive the live fetch and would silently report
+    OK. Refuse with exit code 2 instead.
+    """
+    snapshot = tmp_path / "snapshot.json"
+    # Repo settings only — no branches key at all.
+    _write_json(snapshot, {"repo_settings": {"allow_auto_merge": True}})
+    rc = drift.main(["--snapshot", str(snapshot)])
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "no usable `branches` map" in captured.err
+
+
+def test_main_snapshot_with_empty_branches_returns_two(tmp_path, capsys):
+    """A snapshot with `branches: {}` is also unusable — same exit path."""
+    snapshot = tmp_path / "snapshot.json"
+    _write_json(snapshot, {"repo_settings": {}, "branches": {}})
+    rc = drift.main(["--snapshot", str(snapshot)])
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "no usable `branches` map" in captured.err
+
+
+def test_main_snapshot_with_non_dict_branches_returns_two(tmp_path, capsys):
+    """A snapshot whose `branches` is the wrong type is also unusable."""
+    snapshot = tmp_path / "snapshot.json"
+    _write_json(snapshot, {"repo_settings": {}, "branches": ["main"]})
+    rc = drift.main(["--snapshot", str(snapshot)])
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "no usable `branches` map" in captured.err
 
 
 def test_main_live_fetch_failure_returns_two(tmp_path, capsys, monkeypatch):

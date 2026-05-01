@@ -153,6 +153,12 @@ def normalize_state(state: dict[str, Any]) -> dict[str, Any]:
     """
     repo_settings = state.get("repo_settings", {})
     branches = state.get("branches", {})
+    # Defensive: a malformed snapshot (e.g. `branches: null` or `branches: []`)
+    # would crash `.items()` here. Treat anything that isn't a dict as an
+    # empty branches map — the diff comparator will then surface the
+    # missing branches as "missing in live state" / "present in live state
+    # but not in snapshot" entries rather than blowing up the script.
+    branches_iter = branches.items() if isinstance(branches, dict) else ()
     return {
         "repo_settings": _normalize_repo_settings(repo_settings)
         if isinstance(repo_settings, dict)
@@ -161,7 +167,7 @@ def normalize_state(state: dict[str, Any]) -> dict[str, Any]:
             name: _normalize_branch_protection(payload)
             if isinstance(payload, dict)
             else payload
-            for name, payload in branches.items()
+            for name, payload in branches_iter
         },
     }
 
@@ -234,7 +240,15 @@ def _gh_json(args: list[str]) -> Any:
         raise RuntimeError(
             f"gh {' '.join(args)} failed (exit {result.returncode}): {result.stderr.strip()}"
         )
-    return json.loads(result.stdout)
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        # `gh api` can return non-JSON on transient failures, auth issues,
+        # or rate-limit responses. Surface as RuntimeError so the CLI's
+        # outer `except RuntimeError` branch maps it to exit code 2.
+        raise RuntimeError(
+            f"gh {' '.join(args)} returned non-JSON output: {exc}"
+        ) from exc
 
 
 def collect_live_state(
@@ -263,8 +277,16 @@ def collect_live_state(
 
 
 def _load_json_file(path: Path) -> dict[str, Any]:
-    with path.open(encoding="utf-8") as f:
-        return json.load(f)
+    """
+    Read a JSON file from disk. JSON parse errors are surfaced as
+    `RuntimeError` (with the underlying decoder message) so `main` can
+    map them to the documented exit code 2 alongside other usage errors.
+    """
+    try:
+        with path.open(encoding="utf-8") as f:
+            return json.load(f)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"failed to parse {path} as JSON: {exc}") from exc
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -297,19 +319,40 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: snapshot file not found at {args.snapshot}", file=sys.stderr)
         return 2
 
-    expected = _load_json_file(args.snapshot)
+    try:
+        expected = _load_json_file(args.snapshot)
+    except RuntimeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    # The script's central decision — which branches to fetch from the
+    # live API — is keyed off the snapshot's `branches` map. If that map
+    # is missing or shaped wrong, drift would be silently undetectable
+    # (we'd fetch zero branches and report "OK"). Refuse to proceed.
+    expected_branches = expected.get("branches") if isinstance(expected, dict) else None
+    if not isinstance(expected_branches, dict) or not expected_branches:
+        print(
+            f"error: snapshot at {args.snapshot} has no usable `branches` map "
+            "— refusing to proceed (without a branch list, drift cannot be checked).",
+            file=sys.stderr,
+        )
+        return 2
 
     if args.live_file is not None:
         if not args.live_file.exists():
             print(f"error: live-file not found at {args.live_file}", file=sys.stderr)
             return 2
-        live = _load_json_file(args.live_file)
+        try:
+            live = _load_json_file(args.live_file)
+        except RuntimeError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
     else:
         try:
             live = collect_live_state(
                 args.owner,
                 args.repo,
-                branches=sorted(expected.get("branches", {}).keys()),
+                branches=sorted(expected_branches.keys()),
             )
         except RuntimeError as exc:
             print(f"error: failed to fetch live state — {exc}", file=sys.stderr)
