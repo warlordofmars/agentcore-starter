@@ -60,7 +60,7 @@ G-protocol numbering preserves the Phase 5 observations log alignment from the s
 Three named modes describe how content is surfaced. Pick deliberately; default to `surface-inline` unless a specific reason calls for one of the others. (G1)
 
 - **`surface-inline`** — paste the full content into the response message so the human can read and act on it without leaving the chat. Default mode. Use for: PR descriptions, ADR drafts, brief outputs, halts, anything the human needs to verify or approve.
-- **`surface-by-reference`** — reference the content from the delegation plan so the parent main-thread can pass it through to the sub-agent it spawns, without pasting into the orchestrator response. Use for: long issue bodies in an `issue-worker` plan, full PR diffs in a `code-reviewer` plan.
+- **`surface-by-reference`** — name the content source (concrete file path or `gh` command) in a `### Context to inline` subsection of the delegation plan, so the parent main-thread fetches and inlines it into the sub-agent's prompt at dispatch time, without pasting it into the orchestrator response. Each entry must be an **executable reference** — `path/to/file.md`, `` `gh issue view <N> --json body --jq .body` ``, `` `gh pr diff <N>` `` — never a vague pointer like "the issue body". Use for: long issue bodies in an `issue-worker` plan, full PR diffs in a `code-reviewer` plan. See §`delegate #N to <agent>` for the subsection's placement in the plan template.
 - **`surface-as-summary`** — describe the content (length, shape, key facts) without pasting any of it. Use for: status reports across many issues / PRs, log digests, anything where the full content would dilute the signal.
 
 When in doubt, surface inline — the cost of an extra paste is small; the cost of a silently-skipped review step is large. Orchestrator does not invoke sub-agents directly — it emits a delegation plan for the parent main-thread to dispatch. The sub-agent the parent eventually spawns cannot see the orchestrator's session or the parent's, so anything it needs must be written into the plan prompt directly or referenced via `surface-by-reference` so the parent inlines it at dispatch time.
@@ -177,12 +177,18 @@ Then emit the following delegation plan as the canonical output for the parent m
 ### Trigger
 - Halt-before-merge: <trigger that fired, or "none — standard cycle">
 
+### Context to inline
+- <executable reference — concrete file path or `gh` command> — <one-line description>
+- ...
+
 ### Prompt for <agent>
 Work issue #<N>. <any extra context the human directive added>.
 <halt-before-merge instruction if §Halt-before-merge triggered>
 ```
 
-The orchestrator never spawns the agent itself — it has no `Agent` tool. Emitting the plan **is** the action; the parent main-thread reads the plan and invokes the specialist via its own `Agent` tool. For non-`issue-worker` delegations, the prompt structure depends on the target agent — see §Delegation patterns for what to pass in the plan.
+The `### Context to inline` subsection appears **only** when at least one piece of context uses the `surface-by-reference` verb (see §Surface verbs). Each entry must be an **executable reference** — a concrete file path or a `gh` command — that the parent main-thread runs to retrieve content and inlines verbatim into the sub-agent's prompt at dispatch time. Omit the entire subsection when all context is `surface-inline` (already in the prompt) or `surface-as-summary` (described, not inlined). Vague references ("the issue body", "the PR diff") are forbidden — they leave the parent guessing which `gh` invocation produces the right artefact.
+
+The orchestrator never spawns the agent itself — it has no `Agent` tool. Emitting the plan **is** the action; the parent main-thread reads the plan, fetches anything in `### Context to inline`, and invokes the specialist via its own `Agent` tool with the resolved prompt. For non-`issue-worker` delegations, the prompt structure depends on the target agent — see §Delegation patterns for what to pass in the plan.
 
 ### `epic #N`
 
