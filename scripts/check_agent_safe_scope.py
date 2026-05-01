@@ -488,17 +488,22 @@ def evaluate(
 
     if files_to_touch is not None:
         if not files_to_touch:
-            # Heading present but empty bullet list — fail closed. A section
-            # with no entries can't gate a diff; falling back to WARN would
-            # let any diff pass scope-check trivially by leaving the section
-            # blank.
+            # Heading present but parser returned no paths — fail closed. The
+            # zero-paths condition covers three shapes: (1) bullets present
+            # but empty, (2) bullets present with only prose content (no
+            # backticks, no path-shaped tokens), (3) prose-form section with
+            # backtick-quoted paths but no bullets at all. A section with no
+            # entries can't gate a diff; falling back to WARN would let any
+            # diff pass scope-check trivially by leaving the section blank.
             #
-            # Issue #130: distinguish the prose-form shape mismatch from a
-            # truly empty section. When the section contains backtick-quoted
-            # path-shaped tokens but no bullets, the author wrote prose
-            # instead of bullets — emit a targeted message naming the shape
-            # and showing the fix, rather than the generic "empty or
-            # malformed" string that doesn't tell them what to do.
+            # Issue #130: distinguish shape (3) from shapes (1) and (2). When
+            # the section contains backtick-quoted path-shaped tokens but no
+            # bullets, the author wrote prose instead of bullets — emit a
+            # targeted message naming the shape and showing the fix, rather
+            # than the generic "empty or malformed" string that doesn't tell
+            # them what to do. Shapes (1) and (2) keep the generic message
+            # because the bullet shape was correct; the content was the
+            # problem.
             section = _extract_files_to_touch_section(issue_body or "") or ""
             if _section_has_prose_form_paths(section):
                 return Verdict(

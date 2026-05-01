@@ -16,6 +16,7 @@ Covers all six matrix cases (a)–(f) from issue #77 refinements
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 from pathlib import Path
 
@@ -890,8 +891,15 @@ intro
     assert "- `foo.py`" in section
     # Must NOT bleed into the next section.
     assert "Acceptance criteria" not in section
-    # Must NOT include the heading line itself.
-    assert "Files to touch" not in section
+    # Must NOT include the heading line itself. Test by line — a section
+    # body could legitimately mention the words "Files to touch" inside its
+    # content (e.g. an issue note), so substring-checking the whole section
+    # would be brittle. Instead, assert no non-empty line in the returned
+    # text is the heading itself.
+    for line in section.splitlines():
+        assert not re.match(r"^#{2,3}\s+Files to touch\s*$", line, re.IGNORECASE), (
+            f"heading line leaked into extracted section: {line!r}"
+        )
 
 
 def test_extract_files_to_touch_section_returns_none_when_heading_absent():
