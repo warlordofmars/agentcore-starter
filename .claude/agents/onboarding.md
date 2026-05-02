@@ -43,7 +43,7 @@ Then ask the following in **one** `AskUserQuestion` call (only ask what the repo
 
 ## Phase 0 — what to delete
 
-Before renaming anything, walk the adopter through removing template residue their fork doesn't need. The template is half-extracted — it ships with scaffolds for OAuth-server, Bedrock inline-agent demo, and a stub seed task that successive forks may or may not use. Delete the dead weight first so it doesn't get carried through the rename and pollute every grep.
+Before renaming anything, walk the adopter through removing template residue their fork doesn't need. The template is half-extracted — it ships with scaffolds for OAuth-server, Bedrock inline-agent demo, and a stub `--seed` flag on `inv dev` that successive forks may or may not use. Delete the dead weight first so it doesn't get carried through the rename and pollute every grep.
 
 **This list is curated against the upstream template at the time of this revision.** Re-curate when the upstream changes — phrase the conversation as "review the candidates, delete what your fork doesn't use" rather than a hard delete list.
 
@@ -145,7 +145,7 @@ Edit `infra/stacks/starter_stack.py`. The two module-level constants are the can
 
 Also update inside the stack body:
 - `AgentCoreStarterStack` (class name and all string references) → `<ProjectName>Stack`
-- All `"agentcore-starter"` string literals — table name (`agentcore-starter-{env}`), SSM prefix (`/agentcore-starter/<env>/<name>`), CloudFront security-headers policy name, WAF web-ACL name + metric name, WAF log-group name (`aws-waf-logs-agentcore-starter-<env>`), the issuer-host construction, and the alarm-email SSM path comment
+- All `"agentcore-starter"` string literals — table name (prod `agentcore-starter`, non-prod `agentcore-starter-{env}`), SSM prefix (prod `/agentcore-starter/<name>`, non-prod `/agentcore-starter/<env>/<name>` — both forms appear in the same `_ssm_path` helper), CloudFront security-headers policy name, WAF web-ACL name + metric name, WAF log-group name (`aws-waf-logs-agentcore-starter-<env>`), the issuer-host construction (prod uses bare `agentcore-starter`, non-prod uses `agentcore-starter-<env>`), and the alarm-email SSM path comment
 - `cdk.Tags.of(self).add("project", "agentcore-starter")` → `"<project-name>"`
 
 Edit `infra/app.py`:
@@ -178,12 +178,12 @@ Several Python modules carry `agentcore-starter` defaults in their fallback path
 grep -rn "agentcore-starter" src/ --include="*.py"
 ```
 
-Update:
-- `src/<project>/api/main.py` — `configure_logging("agentcore-starter")` and `importlib.metadata.version("agentcore-starter")` (the package-name lookup)
-- `src/<project>/logging_config.py` — `importlib.metadata.version("agentcore-starter")` fallback
-- `src/<project>/auth/google.py` — three SSM parameter-path defaults (`/agentcore-starter/google-client-id`, `-secret`, `-allowed-emails`); the `*_PARAM` env-var override is the production path, but the literal default is the agent-prompt fallback
-- `src/<project>/auth/state_store.py` — `STARTER_TABLE_NAME` default `"agentcore-starter-dev"`
-- `src/<project>/auth/tokens.py` — `STARTER_ISSUER` default (`https://agentcore-starter.example.com`) and `STARTER_JWT_SECRET_PARAM` default (`/agentcore-starter/jwt-secret`); also update the docstring example paths
+Update (paths are post-rename — substitute `<project-name>` for the new package name from §1a):
+- `src/<project-name>/api/main.py` — `configure_logging("agentcore-starter")` and `importlib.metadata.version("agentcore-starter")` (the package-name lookup)
+- `src/<project-name>/logging_config.py` — `importlib.metadata.version("agentcore-starter")` fallback
+- `src/<project-name>/auth/google.py` — three SSM parameter-path defaults (`/agentcore-starter/google-client-id`, `-secret`, `-allowed-emails`); the `*_PARAM` env-var override is the production path, but the literal default is the agent-prompt fallback
+- `src/<project-name>/auth/state_store.py` — `STARTER_TABLE_NAME` default `"agentcore-starter-dev"`
+- `src/<project-name>/auth/tokens.py` — `STARTER_ISSUER` default (`https://agentcore-starter.example.com`) and `STARTER_JWT_SECRET_PARAM` default (`/agentcore-starter/jwt-secret`); also update the docstring example paths
 
 The SSM-path defaults in `auth/google.py` and `auth/tokens.py` line up with the SSM parameters you'll create in Phase 3 — keep both in sync. See `docs-site/operations/security.md` for the full operational contract that connects them.
 
@@ -619,7 +619,7 @@ The template ships placeholder endpoints. Point the developer to exactly what to
 | `src/<project-name>/agents/inline_agent.py` | `invoke` / `invoke_stream` wrappers | Add `actionGroups` for tool-calling (see `docs-site/agents/sessions.md`) |
 | `src/<project-name>/agents/bedrock.py` | Raw `converse` / `converse_stream` | Replace or extend for custom prompting |
 | `ui/src/components/` | Admin-only dashboard + user management | Add your own tabs and panels |
-| `tasks.py` `seed()` task | Stub that prints a message | Implement with your own demo data |
+| `tasks.py` `--seed` flag on `inv dev` | Stub that prints "not implemented" and exits | Wire up real seed data (or extract the flag into a dedicated `seed` task) |
 
 Also update:
 - `docs-site/` — replace AgentCore Starter branding and scaffold endpoint docs with your own
@@ -640,7 +640,7 @@ Phase 0 — Orphan-file review
   [x/○] Bedrock agent scaffolds (agents/bedrock.py, agents/inline_agent.py) reviewed
   [x/○] API scaffold (api/agents.py) reviewed
   [x/○] UI residue (UsersPanel, EmptyState, etc.) reviewed
-  [x/○] Stub seed task reviewed
+  [x/○] Stub `--seed` flag (on `inv dev`) reviewed
   [x/○] pre-push gate passing after deletions
 
 Phase 1 — Rename
@@ -664,7 +664,7 @@ Phase 3 — Google OAuth / SSM
   [x/○] google-client-secret SSM parameter
   [x/○] jwt-secret SSM parameter
   [x/○] allowed-emails SSM parameter
-  [x/○] origin-verify SSM parameter
+  [x/○] origin-verify-secret SSM parameter
 
 Phase 4 — GitHub secrets
   [x/○] AWS_DEV_DEPLOY_ROLE_ARN
