@@ -240,16 +240,23 @@ def _count_sse_deltas(body: bytes) -> int:
 def _assert_streaming_timing_is_real_time(observation: _StreamObservation) -> None:
     """Fail the test if the stream looks like it was buffered, not streamed.
 
-    Three orthogonal signals, each catching a different buffering
+    Four orthogonal signals, each catching a different buffering
     failure mode:
 
     * `delta_count >= 2` — sanity check; if the response had only one
-      delta there's no inter-chunk timing to assert against.
-    * `time-to-first-byte` — catches "buffer everything, flush at end"
-      where the response body arrives in one giant chunk after the
-      origin closes the connection.
-    * `max inter-chunk gap` — catches periodic flushes; even one
-      multi-second stall between flushes is enough to break the
+      delta there's no streaming behaviour to verify in the first
+      place. The remaining checks assume at least two deltas.
+    * `time-to-first-byte < 8s` — catches "buffer everything, flush
+      at end" where the entire response body arrives in one giant
+      chunk after the origin closes the connection.
+    * `len(arrivals) >= 2 when delta_count >= 2` — catches the
+      sub-8s coalesce: even a fast response that delivers two-plus
+      deltas in a single TCP flush is the buffering regression
+      this test exists to detect. Without this check, a buffered
+      response that fits inside the TTFB threshold would pass
+      silently.
+    * `max inter-chunk gap < 1.5s` — catches periodic flushes; even
+      one multi-second stall between flushes is enough to break the
       real-time UX.
     """
     assert observation.delta_count >= 2, (
@@ -271,17 +278,30 @@ def _assert_streaming_timing_is_real_time(observation: _StreamObservation) -> No
     )
 
     arrivals = observation.chunk_arrival_times
-    if len(arrivals) >= 2:
-        gaps = [arrivals[i] - arrivals[i - 1] for i in range(1, len(arrivals))]
-        max_gap = max(gaps)
-        assert max_gap < _MAX_INTERCHUNK_GAP_SECONDS, (
-            f"Max inter-chunk gap {max_gap:.2f}s exceeds "
-            f"{_MAX_INTERCHUNK_GAP_SECONDS}s threshold "
-            f"(gaps={[round(g, 3) for g in gaps]}). Likely cause: "
-            "CloudFront response compression buffering SSE chunks; "
-            "verify the /api/* behaviour has compress=False (issue "
-            "#34)."
-        )
+    # Coalesce check: if the origin emitted N>=2 deltas but the edge
+    # delivered them in a single network chunk, that *is* the
+    # buffering regression — even if the whole response arrived
+    # inside the TTFB threshold. Without this assertion, a fast
+    # buffered response would slip past TTFB and have no inter-chunk
+    # gap to fail on.
+    assert len(arrivals) >= 2, (
+        f"Origin emitted {observation.delta_count} SSE delta events "
+        f"but the edge delivered them in {len(arrivals)} network "
+        "chunk — multiple deltas were coalesced into a single TCP "
+        "flush. This is the streaming-buffering regression this "
+        "test exists to catch (issue #34: verify the /api/* "
+        "behaviour has compress=False)."
+    )
+    gaps = [arrivals[i] - arrivals[i - 1] for i in range(1, len(arrivals))]
+    max_gap = max(gaps)
+    assert max_gap < _MAX_INTERCHUNK_GAP_SECONDS, (
+        f"Max inter-chunk gap {max_gap:.2f}s exceeds "
+        f"{_MAX_INTERCHUNK_GAP_SECONDS}s threshold "
+        f"(gaps={[round(g, 3) for g in gaps]}). Likely cause: "
+        "CloudFront response compression buffering SSE chunks; "
+        "verify the /api/* behaviour has compress=False (issue "
+        "#34)."
+    )
 
 
 @_SKIP_IF_NOT_CLOUDFRONT
