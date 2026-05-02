@@ -88,6 +88,38 @@ _MAX_TIME_TO_FIRST_BYTE_SECONDS = 8.0
 _STREAM_TIMEOUT_SECONDS = 30.0
 
 
+def _is_cloudfront_url(url: str) -> bool:
+    """True if `url` looks like a deployed (non-local) HTTPS endpoint.
+
+    The streaming timing assertion is only meaningful against a real
+    CloudFront distribution. Under `inv e2e-local`, `STARTER_UI_URL`
+    is the Vite dev-server URL (e.g. `http://localhost:5174`); the
+    Vite proxy bypasses CloudFront entirely so the test would pass
+    or fail for the wrong reason. Local URLs are filtered out here.
+    """
+    if not url:
+        return False
+    return not (
+        url.startswith("http://localhost")
+        or url.startswith("http://127.0.0.1")
+        or url.startswith("https://localhost")
+    )
+
+
+# Use skipif rather than an in-test pytest.skip(): pytest evaluates
+# skipif before xfail, so a skipped test under skipif is reported as
+# SKIPPED — not the XFAIL that an in-test pytest.skip() would produce
+# under an xfail-marked function.
+_SKIP_IF_NOT_CLOUDFRONT = pytest.mark.skipif(
+    not _is_cloudfront_url(EDGE_URL),
+    reason=(
+        "STARTER_UI_URL is unset or points at a local dev server "
+        f"({EDGE_URL!r}); this test is only meaningful against a "
+        "deployed CloudFront distribution."
+    ),
+)
+
+
 @dataclass
 class _StreamObservation:
     """Network-level timing data for one SSE response.
@@ -252,6 +284,7 @@ def _assert_streaming_timing_is_real_time(observation: _StreamObservation) -> No
         )
 
 
+@_SKIP_IF_NOT_CLOUDFRONT
 @pytest.mark.xfail(
     reason=(
         "Issue #34 (CloudFront compress=False on /api/*) has not shipped — "
@@ -262,9 +295,6 @@ def _assert_streaming_timing_is_real_time(observation: _StreamObservation) -> No
 )
 async def test_echo_stream_inter_chunk_timing(live_admin_token: str) -> None:
     """Echo-stream SSE chunks arrive in real time at the CloudFront edge."""
-    if not EDGE_URL:
-        pytest.skip("STARTER_UI_URL not set (CloudFront edge URL is required for this test)")
-
     # A short multi-token prompt so the model emits multiple deltas
     # without racking up wall-time. Echo wraps `converse_stream`, so
     # this still hits Bedrock and incurs token charges — see the
@@ -277,6 +307,7 @@ async def test_echo_stream_inter_chunk_timing(live_admin_token: str) -> None:
     _assert_streaming_timing_is_real_time(observation)
 
 
+@_SKIP_IF_NOT_CLOUDFRONT
 @pytest.mark.xfail(
     reason=(
         "Issue #34 (CloudFront compress=False on /api/*) has not shipped — "
@@ -294,8 +325,6 @@ async def test_invoke_stream_inter_chunk_timing(live_admin_token: str) -> None:
     demand to catch buffering regressions specific to the inline-
     agent streaming surface.
     """
-    if not EDGE_URL:
-        pytest.skip("STARTER_UI_URL not set (CloudFront edge URL is required for this test)")
     if os.environ.get("STARTER_E2E_RUN_INVOKE_STREAM") != "1":
         pytest.skip(
             "Set STARTER_E2E_RUN_INVOKE_STREAM=1 to exercise the inline-agent "
