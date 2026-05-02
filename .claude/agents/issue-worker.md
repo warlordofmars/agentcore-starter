@@ -79,6 +79,14 @@ Before branching, scan `.claude/skills/` for skills whose triggers match the cur
 # distinguishable. Keep stdout (the parseable file list) and stderr
 # (any error text) on separate streams — do NOT redirect with `2>&1`
 # or the agent may misread an error line as a SKILL.md path.
+#
+# To capture all three signals separately when invoking via the Bash
+# tool, run the command, observe its exit code, and read stderr from
+# the tool's combined output (the Bash tool surfaces both streams to
+# the agent but keeps stdout lines visually distinct from stderr's
+# "find: ..." prefixes). The agent should treat lines matching the
+# expected SKILL.md path shape as the file list and any other lines
+# as scan-failure diagnostic text.
 find .claude/skills -maxdepth 2 -name SKILL.md -type f
 ```
 
@@ -96,8 +104,8 @@ If no skills match, proceed to step 2. Borderline matches should err toward load
 **Surface the discovery decision on every outcome** — §1.5 must produce evidence in the agent's output that an observer can read after the fact. The exact phrasing is the agent's call; the requirement is that the four cases below are each visibly logged. The cases are not strictly mutually exclusive (e.g. `find` can exit non-zero while still printing some matching paths under a partial-permission-denied condition); apply this **precedence** when more than one applies:
 
 1. **Pre-scan announce** is always emitted, regardless of any other case.
-2. **Scan failure** is emitted whenever the scan command exits non-zero, even if some paths were also printed. Per-path **match + load** lines (for whichever paths *were* printed) are emitted alongside it; this preserves visibility of partial recovery without hiding the failure.
-3. **Match + load** lines are emitted for each path-match that loaded successfully.
+2. **Scan failure** is emitted whenever the scan command exits non-zero, even if some paths were also printed. Any **match + load** lines (for skills among the printed paths whose triggers actually matched the issue's surface) are emitted alongside it; this preserves visibility of partial recovery without hiding the failure. Note: printed paths are *candidates* for evaluation, not guaranteed loads — only paths whose `triggers.paths` or `triggers.areas` actually match produce a "Loaded skill" line.
+3. **Match + load** lines are emitted for each skill whose triggers actually matched the issue's surface and whose body was loaded. Skills whose paths were printed by the scan but whose triggers did not match produce no log line — they are silently skipped.
 4. **Zero matches** is emitted *only* when the scan exited 0, no errors occurred, and no skill's triggers matched the issue's surface (or no `SKILL.md` files were present to evaluate). Do not emit this if the failure case fired.
 
 The four cases:
