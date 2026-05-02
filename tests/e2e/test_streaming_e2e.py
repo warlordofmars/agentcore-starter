@@ -11,9 +11,15 @@ clock timestamp of each SSE chunk and asserting an inter-arrival
 upper bound, this test fails fast if a CloudFront config change
 silently re-introduces buffering.
 
-Test target: the deployed CloudFront URL (`STARTER_API_URL`), not
-the Lambda Function URL directly. The whole point is to exercise the
-edge path that real browsers traverse.
+Test target: the deployed CloudFront URL (`STARTER_UI_URL`), not
+the Lambda Function URL (`STARTER_API_URL` resolves to
+`ApiFunctionUrl` in `tasks.e2e()`, which bypasses CloudFront
+entirely). CloudFront serves the React SPA at the apex and proxies
+`/api/*` to the same Lambda — so `${STARTER_UI_URL}/api/agents/...`
+is the actual edge path real browsers traverse, and is the only
+path that exercises CloudFront's compression decision. Hitting the
+Lambda Function URL directly would skip CloudFront and silently
+mask the very buffering regression this test is meant to catch.
 
 Currently `xfail` (`strict=False`) until issue #34 lands
 (`compress=False` on the `/api/*` / `/auth/*` / `/oauth/*` CloudFront
@@ -40,7 +46,14 @@ from collections.abc import AsyncIterator
 import httpx
 import pytest
 
-API_URL = os.environ.get("STARTER_API_URL", "")
+# STARTER_UI_URL is the CloudFront URL (UiUrl CloudFormation output);
+# CloudFront proxies /api/* to the same Lambda the Function URL serves.
+# We deliberately do NOT use STARTER_API_URL — that's the Lambda
+# Function URL, which bypasses CloudFront entirely and would defeat
+# the purpose of this test. The live_admin_token fixture issues the
+# JWT via STARTER_API_URL on its own; the JWT is host-agnostic and
+# is accepted at the CloudFront edge as well.
+EDGE_URL = os.environ.get("STARTER_UI_URL", "")
 
 # Maximum allowed wall-clock gap between consecutive SSE chunks. Generous
 # enough to absorb network jitter and TLS/handshake variability, tight
@@ -116,8 +129,8 @@ async def _iter_sse_data_lines(lines: AsyncIterator[str]) -> AsyncIterator[str]:
 )
 async def test_echo_stream_inter_chunk_timing(live_admin_token: str) -> None:
     """Consecutive echo-stream SSE chunks must arrive within 1.5s of each other."""
-    if not API_URL:
-        pytest.skip("STARTER_API_URL not set")
+    if not EDGE_URL:
+        pytest.skip("STARTER_UI_URL not set (CloudFront edge URL is required for this test)")
 
     # A short multi-token prompt so the model emits multiple deltas without
     # racking up cost or wall time. Echo stream is a thin wrapper over
@@ -125,7 +138,7 @@ async def test_echo_stream_inter_chunk_timing(live_admin_token: str) -> None:
     body = {"message": "Count to five, one number per line.", "system": None}
 
     timestamps = await _record_chunk_arrival_times(
-        API_URL, live_admin_token, "/api/agents/echo/stream", body
+        EDGE_URL, live_admin_token, "/api/agents/echo/stream", body
     )
 
     assert len(timestamps) >= 2, (
@@ -158,8 +171,8 @@ async def test_invoke_stream_inter_chunk_timing(live_admin_token: str) -> None:
     real model cost. Gated on ``STARTER_E2E_RUN_INVOKE_STREAM=1`` so
     routine CI runs only exercise the cheap echo-stream variant.
     """
-    if not API_URL:
-        pytest.skip("STARTER_API_URL not set")
+    if not EDGE_URL:
+        pytest.skip("STARTER_UI_URL not set (CloudFront edge URL is required for this test)")
     if os.environ.get("STARTER_E2E_RUN_INVOKE_STREAM") != "1":
         pytest.skip(
             "Set STARTER_E2E_RUN_INVOKE_STREAM=1 to exercise the inline-agent "
@@ -169,7 +182,7 @@ async def test_invoke_stream_inter_chunk_timing(live_admin_token: str) -> None:
     body = {"message": "Count to five, one number per line.", "session_id": None}
 
     timestamps = await _record_chunk_arrival_times(
-        API_URL, live_admin_token, "/api/agents/invoke/stream", body
+        EDGE_URL, live_admin_token, "/api/agents/invoke/stream", body
     )
 
     assert len(timestamps) >= 2, (
