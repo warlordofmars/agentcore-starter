@@ -83,10 +83,14 @@ Before branching, scan `.claude/skills/` for skills whose triggers match the cur
 # To capture all three signals separately when invoking via the Bash
 # tool, run the command, observe its exit code, and read stderr from
 # the tool's combined output (the Bash tool surfaces both streams to
-# the agent but keeps stdout lines visually distinct from stderr's
-# "find: ..." prefixes). The agent should treat lines matching the
-# expected SKILL.md path shape as the file list and any other lines
-# as scan-failure diagnostic text.
+# the agent but keeps stdout lines visually distinct from stderr).
+# Path lines from this command match the literal shape
+# `.claude/skills/<skill-name>/SKILL.md` (one per line, no
+# leading whitespace). Diagnostic lines from `find` start with
+# `find: ` (or, on this project's macOS dev environment which
+# uses bfs, with `bfs: error: `). Treat any line matching the
+# `.claude/skills/<...>/SKILL.md` shape as a candidate path and
+# any other line as scan-failure diagnostic text.
 find .claude/skills -maxdepth 2 -name SKILL.md -type f
 ```
 
