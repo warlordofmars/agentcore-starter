@@ -240,12 +240,14 @@ def _count_sse_deltas(body: bytes) -> int:
 def _assert_streaming_timing_is_real_time(observation: _StreamObservation) -> None:
     """Fail the test if the stream looks like it was buffered, not streamed.
 
-    Four orthogonal signals, each catching a different buffering
-    failure mode:
+    Three orthogonal signals plus a signal-availability gate, each
+    catching a different buffering failure mode:
 
-    * `delta_count >= 2` — sanity check; if the response had only one
-      delta there's no streaming behaviour to verify in the first
-      place. The remaining checks assume at least two deltas.
+    * (gate) `delta_count >= 2` — if the response had only one
+      delta we don't have signal to assert against. Skip rather
+      than fail; Bedrock makes no guarantee about how a short
+      reply is split, so a single-delta response is a known
+      possibility on healthy streams.
     * `time-to-first-byte < 8s` — catches "buffer everything, flush
       at end" where the entire response body arrives in one giant
       chunk after the origin closes the connection.
@@ -259,11 +261,19 @@ def _assert_streaming_timing_is_real_time(observation: _StreamObservation) -> No
       one multi-second stall between flushes is enough to break the
       real-time UX.
     """
-    assert observation.delta_count >= 2, (
-        f"Expected at least 2 SSE delta events to give the timing "
-        f"assertion signal, got {observation.delta_count}. If the "
-        "model produced a single-delta reply, broaden the prompt."
-    )
+    # Skip rather than fail if the response had too few deltas to give
+    # the assertion signal: `converse_stream` / `invoke_stream` yield
+    # one SSE event per upstream Bedrock chunk, and Bedrock makes no
+    # guarantee about how a short reply is split. A single-delta
+    # response is rare for the multi-token prompt below but possible,
+    # and isn't itself evidence of a buffering regression — it just
+    # means we don't have enough signal here.
+    if observation.delta_count < 2:
+        pytest.skip(
+            f"Got only {observation.delta_count} SSE delta event(s) — "
+            "not enough signal to assert inter-chunk timing. Broaden "
+            "the prompt if this happens consistently."
+        )
     assert observation.chunk_arrival_times, (
         "No transport-level chunks were observed — the response may have been empty."
     )
@@ -315,11 +325,19 @@ def _assert_streaming_timing_is_real_time(observation: _StreamObservation) -> No
 )
 async def test_echo_stream_inter_chunk_timing(live_admin_token: str) -> None:
     """Echo-stream SSE chunks arrive in real time at the CloudFront edge."""
-    # A short multi-token prompt so the model emits multiple deltas
-    # without racking up wall-time. Echo wraps `converse_stream`, so
-    # this still hits Bedrock and incurs token charges — see the
-    # cost note in the module docstring.
-    body = {"message": "Count to five, one number per line.", "system": None}
+    # Multi-token prompt that virtually guarantees the model emits
+    # several Bedrock chunks (one SSE delta per chunk). A short reply
+    # can collapse into a single delta even on a healthy stream;
+    # asking for a paragraph keeps the assertion signal-rich without
+    # blowing up the wall-time. Echo wraps `converse_stream`, so this
+    # still hits Bedrock and incurs token charges — see the cost note
+    # in the module docstring.
+    body = {
+        "message": (
+            "Write a short paragraph (4-5 sentences) about ocean tides. Be descriptive but concise."
+        ),
+        "system": None,
+    }
 
     observation = await _observe_sse_stream(
         EDGE_URL, live_admin_token, "/api/agents/echo/stream", body
@@ -351,7 +369,12 @@ async def test_invoke_stream_inter_chunk_timing(live_admin_token: str) -> None:
             "streaming endpoint (incurs higher Bedrock cost than echo)."
         )
 
-    body = {"message": "Count to five, one number per line.", "session_id": None}
+    body = {
+        "message": (
+            "Write a short paragraph (4-5 sentences) about ocean tides. Be descriptive but concise."
+        ),
+        "session_id": None,
+    }
 
     observation = await _observe_sse_stream(
         EDGE_URL, live_admin_token, "/api/agents/invoke/stream", body
