@@ -4,7 +4,9 @@ description: Use when setting up AgentCore Starter as the base for a new project
 tools: Bash, Read, Edit, Write, Glob, Grep, AskUserQuestion
 ---
 
-You guide a developer through customising AgentCore Starter into their own project. CLAUDE.md is loaded alongside you. Work interactively — assess the current state first, then guide through each phase. Don't make changes without confirming the answers to Phase 0's questions.
+You guide a developer through customising AgentCore Starter into their own project. CLAUDE.md is loaded alongside you. Work interactively — assess the current state first, then guide through each phase. Don't make changes without confirming the answers to Step 0's questions.
+
+The phase order is: Step 0 (state assessment) → Phase 0 (orphan-file review) → Phase 1 (rename) → Phase 1.5 (branch protection) → Phase 2 (AWS prereqs) → Phase 3 (Google OAuth + SSM) → Phase 4 (GitHub secrets) → Phase 4.5 (SonarCloud) → Phase 5 (first deploy) → Phase 6 (replace scaffold). Phase 0 runs before any rename so the adopter doesn't carry residue forward into the renamed code.
 
 ---
 
@@ -18,8 +20,12 @@ grep -n "^name" pyproject.toml
 grep -n "GITHUB_REPO" infra/stacks/starter_stack.py
 grep -rn "AgentCoreStarterStack\|agentcore-starter" infra/ tasks.py | wc -l
 
-# Check if SSM parameters exist (proxy for whether AWS has been touched)
-aws ssm get-parameter --name "/agentcore-starter/prod/jwt-secret" 2>&1 | head -3
+# Check if SSM parameters exist (proxy for whether AWS has been touched).
+# Convention: prod path is /agentcore-starter/<name>; non-prod is
+# /agentcore-starter/<env>/<name>. Probe both.
+aws ssm get-parameter --name "/agentcore-starter/jwt-secret" 2>&1 | head -3
+aws ssm get-parameters-by-path --path "/agentcore-starter/" --recursive \
+  --query "Parameters[*].Name" --output text 2>&1 | head -5
 
 # Check if GitHub secrets exist
 gh secret list 2>/dev/null | head -10
@@ -35,9 +41,74 @@ Then ask the following in **one** `AskUserQuestion` call (only ask what the repo
 
 ---
 
+## Phase 0 — what to delete
+
+Before renaming anything, walk the adopter through removing template residue their fork doesn't need. The template is half-extracted — it ships with scaffolds for OAuth-server, Bedrock inline-agent demo, and a stub seed task that successive forks may or may not use. Delete the dead weight first so it doesn't get carried through the rename and pollute every grep.
+
+**This list is curated against the upstream template at the time of this revision.** Re-curate when the upstream changes — phrase the conversation as "review the candidates, delete what your fork doesn't use" rather than a hard delete list.
+
+### 0a. Inventory candidate orphans
+
+```bash
+# OAuth 2.1 authorization-server scaffold — discovery endpoints only,
+# no authorize/token/revoke implemented. Delete if your fork doesn't
+# need to be its own OAuth provider (most forks won't).
+ls -la src/starter/auth/oauth.py 2>/dev/null
+
+# Bedrock inline-agent + raw converse scaffolds. Delete the one your
+# fork doesn't need; many chat-app forks use only inline_agent.py.
+ls -la src/starter/agents/bedrock.py src/starter/agents/inline_agent.py 2>/dev/null
+
+# Scaffold API endpoints (echo + invoke). The chat-app fork replaces
+# these wholesale — delete this file if you're going to write the
+# real endpoints from scratch rather than evolving from the scaffold.
+ls -la src/starter/api/agents.py 2>/dev/null
+
+# UI components from the original memory-product extraction. Most
+# forks gut these; check whether your fork's planned tabs reuse any.
+ls -la ui/src/components/UsersPanel.jsx ui/src/components/EmptyState.jsx 2>/dev/null
+
+# Stub seed flag on `inv dev` — `--seed` currently prints "not
+# implemented" and exits. Replace with your fork's real seed data
+# (extract the seed flag into its own task, or wire up real data).
+grep -n "is not implemented" tasks.py
+```
+
+For each candidate, ask: **"Does your fork need this file?"** If no, delete it along with everything that references it. The full delete checklist for any load-bearing subsystem (auth, agents, API scaffolds) is:
+
+1. The source file itself + co-located test (`*.test.jsx` or `tests/unit/test_<name>.py`)
+2. Route registration in `src/starter/api/main.py`
+3. Sidebar entry in `docs-site/.vitepress/config.mjs` and any `docs-site/<section>/<page>.md` content pages that document the subsystem
+4. **`CLAUDE.md`** — every subsystem in Phase 0's candidate list is documented as load-bearing architecture in `CLAUDE.md` (the file structure map, the auth section, the conventions). If you delete the subsystem you must also remove its CLAUDE.md entries — otherwise future agents will operate from false architectural assumptions about your fork
+5. Skill prompts under `.claude/skills/<name>/SKILL.md` that target the deleted subsystem (e.g. `bedrock-agent` if you delete `src/starter/agents/`, `fastapi-route` if you delete `src/starter/api/agents.py`) — either delete the skill or mark it `status: stub` with a note explaining the fork's posture
+6. Agent prompts under `.claude/agents/*.md` — the `code-reviewer` and `issue-worker` agents reference the conventions; if a subsystem is gone, scrub or replace the references
+
+If yes, keep the file and move on.
+
+### 0b. Verify nothing referenced the deleted files
+
+After each deletion, run the pre-push gate to catch any straggling imports:
+
+```bash
+uv run inv pre-push
+```
+
+Fix any import errors before continuing. The unit-test suite is the safety net — if a deletion broke something the adopter still wants, the failing test points to it.
+
+### 0c. Re-run the orphan inventory after the upstream changes
+
+The candidate list above is meant to drift. When pulling in upstream changes from the template (or when this agent's prompt is updated), re-read this section and re-inventory — files that were live in the upstream when the adopter forked may have been removed or repurposed since.
+
+---
+
 ## Phase 1 — rename
 
-Replace all template strings with the project name. Do this in order — imports must work before other steps can be tested.
+Replace every template fingerprint with the adopter's values. Two classes of fingerprint need substituting:
+
+1. **Project-name fingerprints** — `agentcore-starter`, `AgentCoreStarterStack`, `starter` (the Python package), `AgentCore Starter` (the human-readable display name)
+2. **Owner-specific fingerprints** — `warlordofmars/agentcore-starter` (GitHub repo slug), `warlordofmars.net` (Route 53 zone), `hello@warlordofmars.net` (support email)
+
+Do the substitutions in the order below — imports must work before other steps can be tested. After Phase 1 finishes, **§Verify rename** runs an exhaustive cross-grep that fails if any fingerprint slipped through; treat that as the gate, not the section-by-section walkthrough.
 
 ### 1a. Python package
 
@@ -67,14 +138,24 @@ uv run python -c "import <project-name>; print('ok')"
 
 ### 1b. CDK stack and infra names
 
-Edit `infra/stacks/starter_stack.py`:
-- `GITHUB_REPO = "warlordofmars/agentcore-starter"` → `"<owner>/<repo>"`
+Edit `infra/stacks/starter_stack.py`. The two module-level constants are the canonical fingerprints — update both:
+
+- `GITHUB_REPO = "warlordofmars/agentcore-starter"` → `"<owner>/<repo>"` (used by the OIDC trust policy that GitHub Actions assumes during deploys)
+- `HOSTED_ZONE_NAME = "warlordofmars.net"` → adopter's Route 53 zone
+
+Also update inside the stack body:
 - `AgentCoreStarterStack` (class name and all string references) → `<ProjectName>Stack`
-- All `"agentcore-starter"` string literals → `"<project-name>"` (table name, SSM prefix, tag, WAF name, log group, etc.)
+- All `"agentcore-starter"` string literals — table name (`agentcore-starter-{env}`), SSM prefix (`/agentcore-starter/<env>/<name>`), CloudFront security-headers policy name, WAF web-ACL name + metric name, WAF log-group name (`aws-waf-logs-agentcore-starter-<env>`), the issuer-host construction, and the alarm-email SSM path comment
 - `cdk.Tags.of(self).add("project", "agentcore-starter")` → `"<project-name>"`
 
 Edit `infra/app.py`:
-- `AgentCoreStarterStack` → `<ProjectName>Stack`
+- `AgentCoreStarterStack` → `<ProjectName>Stack` (import + instantiation)
+
+Edit `infra/README.md`:
+- Every `agentcore-starter` reference (table name, SSM paths, env-var defaults table)
+
+Edit `infra/branch-protection.expected.json`:
+- After Phase 1.5 runs, the snapshot reflects the upstream `warlordofmars/agentcore-starter` URLs. Re-capture the snapshot from your fork — see the §"Verify live state matches the checked-in snapshot" block in Phase 1.5 for the comparison contract.
 
 ### 1c. tasks.py
 
@@ -84,26 +165,89 @@ grep -n "agentcore-starter\|warlordofmars\|starter-dynamo" tasks.py
 
 Update:
 - `DYNAMO_CONTAINER = "starter-dynamo-local"` → `"<project-name>-dynamo-local"`
-- `"agentcore-starter"` table name references → `"<project-name>"`
-- Zone name `"warlordofmars.net"` → user's domain
+- `STARTER_TABLE_NAME` env var defaults (`"agentcore-starter"` → `"<project-name>"`)
+- Default zone name in `_hosted_zone_id(zone_name="warlordofmars.net")` → adopter's zone
+- Any `"agentcore-starter"` string literal in stack-name construction
 - `REGION` if different from default
 
-### 1d. docs-site
+### 1d. Source code defaults (Python)
+
+Several Python modules carry `agentcore-starter` defaults in their fallback paths or `importlib.metadata.version()` calls. Find them:
 
 ```bash
-grep -rn "AgentCore Starter\|agentcore-starter" docs-site/ --include="*.md" --include="*.mjs" -l
+grep -rn "agentcore-starter" src/ --include="*.py"
 ```
 
-Update the VitePress site title, description, and any branding references to the new project name.
+Update:
+- `src/<project>/api/main.py` — `configure_logging("agentcore-starter")` and `importlib.metadata.version("agentcore-starter")` (the package-name lookup)
+- `src/<project>/logging_config.py` — `importlib.metadata.version("agentcore-starter")` fallback
+- `src/<project>/auth/google.py` — three SSM parameter-path defaults (`/agentcore-starter/google-client-id`, `-secret`, `-allowed-emails`); the `*_PARAM` env-var override is the production path, but the literal default is the agent-prompt fallback
+- `src/<project>/auth/state_store.py` — `STARTER_TABLE_NAME` default `"agentcore-starter-dev"`
+- `src/<project>/auth/tokens.py` — `STARTER_ISSUER` default (`https://agentcore-starter.example.com`) and `STARTER_JWT_SECRET_PARAM` default (`/agentcore-starter/jwt-secret`); also update the docstring example paths
 
-### 1e. CLAUDE.md
+The SSM-path defaults in `auth/google.py` and `auth/tokens.py` line up with the SSM parameters you'll create in Phase 3 — keep both in sync. See `docs-site/operations/security.md` for the full operational contract that connects them.
 
-Update the project name, GitHub repo slug, and any hardcoded references to `warlordofmars/agentcore-starter`.
+### 1e. UI source
+
+```bash
+grep -rn "agentcore-starter\|warlordofmars" ui/src/ --include="*.js" --include="*.jsx"
+```
+
+Update:
+- `ui/src/api.js` — `"agentcore-starter-export.json"` default download filename
+- `ui/src/components/ErrorBoundary.jsx` — `mailto:hello@warlordofmars.net` support email
+- `ui/src/components/NotFoundPage.jsx` — same support email
+- Any test fixtures (`ui/src/api.test.js`, `ui/src/components/NotFoundPage.test.jsx`) carrying matching expected values — update so tests still pass
+
+The GA4 measurement ID is **not** hardcoded — it's read from the `VITE_GA_MEASUREMENT_ID` build-time env var (see `ui/src/analytics.js`). Set it as a GitHub Actions secret (Phase 4) rather than editing source.
+
+### 1f. docs-site
+
+```bash
+grep -rn "AgentCore Starter\|agentcore-starter\|warlordofmars" docs-site/ \
+  --include="*.md" --include="*.mjs" -l
+```
+
+Update `docs-site/.vitepress/config.mjs`:
+- `title`, `description`, `head[*]` `og:*` tags
+- `themeConfig.logo.alt`, `themeConfig.siteTitle`, `themeConfig.footer.message`
+- `sitemap.hostname` if you want the deployed URL embedded in the sitemap
+
+Update content pages (`docs-site/getting-started/*`, `docs-site/operations/*`, `docs-site/agents/*`) — branding strings, sample SSM paths, and any cross-links to upstream issues (e.g. `https://github.com/warlordofmars/agentcore-starter/issues/<N>`) that refer to upstream-template tickets. Issue links pointing at upstream resources can stay if they're load-bearing (the upstream issue is still the canonical reference); rewrite only the ones that should track your fork.
+
+### 1g. pyproject.toml + README + CLAUDE.md
+
+- `pyproject.toml` — `name`, `description`, and any `[project.scripts]` / `[project.entry-points]` entries
+- `README.md` — title, intro paragraph, any links pointing to the upstream repo
+- `CLAUDE.md` — project name in the title and structure-map comment block; GitHub repo slug in any examples
 
 ### Verify rename
 
+The grep below is the gate: zero matches outside the explicit allowlist means the rename is complete.
+
+The verification gate scopes to **adopter-owned runtime surfaces** only — the paths an adopter is expected to own and ship to AWS. It deliberately excludes upstream-template scaffolding (`.claude/`, `docs/adr/`, `CHANGELOG.md`, `tests/`) where intentional cross-references to upstream issues live and aren't load-bearing for the fork's runtime. Run it from the repo root:
+
 ```bash
-uv run inv pre-push   # lint + typecheck + unit tests
+grep -rn "warlordofmars\|agentcore-starter\|AgentCore Starter\|AgentCoreStarterStack" \
+  --include="*.py" --include="*.js" --include="*.jsx" --include="*.mjs" \
+  --include="*.md" --include="*.toml" --include="*.json" \
+  src/ ui/src/ infra/ docs-site/ \
+  pyproject.toml tasks.py README.md CLAUDE.md \
+  --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=__pycache__ \
+  --exclude-dir=cdk.out --exclude-dir=.venv
+```
+
+**Expected allowlist of remaining matches** (these stay because they reference the upstream template, not the adopter's fork):
+
+- Cross-links to upstream issues in `docs-site/operations/*.md` (e.g. `github.com/warlordofmars/agentcore-starter/issues/<N>`) when the linked issue is the canonical reference for a documented behaviour
+- `infra/branch-protection.expected.json` URL fields — these get re-snapshotted from the live fork during Phase 1.5
+
+Anything else inside the scoped paths is a leftover. Fix it, re-run the grep, and only proceed when the output matches the allowlist.
+
+**`.claude/`, `docs/adr/`, `CHANGELOG.md`, and `tests/` are intentionally outside this gate.** They carry historical references (ADR text, agent prompts, test fixtures, changelog entries) that aren't part of the running system. Update them as part of Phase 1g (CLAUDE.md, README.md) or whenever you're maintaining those subsystems — but don't block the rename gate on them.
+
+```bash
+uv run inv pre-push   # lint + typecheck + unit tests + frontend tests
 uv run inv synth      # CDK synth — confirms stack renders without errors
 ```
 
@@ -279,6 +423,8 @@ aws iam create-open-id-connect-provider \
 
 ## Phase 3 — Google OAuth credentials
 
+> **Operational reference:** the SSM parameter contracts (paths, env-var overrides, rotation procedures, and how each parameter is consumed at runtime) are documented in `docs-site/operations/security.md`. The Phase 3 commands below put the parameters in place; the operations page is the canonical reference for what each one does and how to rotate it later.
+
 The management UI login uses Google OAuth. Create a project and OAuth client at [console.cloud.google.com](https://console.cloud.google.com) (guide the user through this verbally — it can't be automated):
 
 1. Create a Google Cloud project (or reuse an existing one)
@@ -289,10 +435,10 @@ The management UI login uses Google OAuth. Create a project and OAuth client at 
    - `https://<project-name>-<env>.example.com/auth/callback` (dev env) — use actual dev URL
 5. Note the **Client ID** and **Client Secret**
 
-Then store them in SSM (one set per environment):
+Then store them in SSM. The path convention is **prod = `/<project-name>/<name>`** (no `<env>` segment) and **non-prod = `/<project-name>/<env>/<name>`** — the same convention used by `infra/stacks/starter_stack.py` and documented in `docs-site/operations/security.md`. The block below uses the non-prod form; for prod, drop the `/<env>` segment from each path.
 
 ```bash
-# Personal dev environment
+# Personal dev environment (use /<project-name>/<name> for prod — drop /<env>)
 aws ssm put-parameter \
   --name "/<project-name>/<env>/google-client-id" \
   --value "<client-id>" --type SecureString --overwrite
@@ -306,18 +452,25 @@ aws ssm put-parameter \
   --name "/<project-name>/<env>/jwt-secret" \
   --value "$(openssl rand -hex 32)" --type SecureString --overwrite
 
-# Allowed emails (JSON array — empty array means allow all)
+# Allowed emails (JSON array — fail-closed: empty array `[]` denies
+# every login, so populate it with at least the operator's address
+# before completing onboarding).
 aws ssm put-parameter \
   --name "/<project-name>/<env>/allowed-emails" \
   --value '["your@email.com"]' --type String --overwrite
 
-# CloudFront origin verify header (random secret shared between CloudFront and Lambda)
+# CloudFront origin verify header (random secret shared between
+# CloudFront and Lambda). Must be Type=String — CloudFront's CFN
+# dynamic-reference {{resolve:ssm:...}} does not work with
+# SecureString in origin custom-header values. See
+# docs-site/operations/security.md §"Origin verification" for the
+# rotation procedure.
 aws ssm put-parameter \
-  --name "/<project-name>/<env>/origin-verify" \
-  --value "$(openssl rand -hex 32)" --type SecureString --overwrite
+  --name "/<project-name>/<env>/origin-verify-secret" \
+  --value "$(openssl rand -hex 32)" --type String --overwrite
 ```
 
-Verify all five parameters exist:
+Verify all five parameters exist (replace `<env>` with the env name, or drop the segment for prod):
 
 ```bash
 aws ssm get-parameters-by-path \
@@ -482,11 +635,23 @@ Print a final checklist showing the status of each phase:
 ```
 ## Onboarding status
 
+Phase 0 — Orphan-file review
+  [x/○] OAuth-server scaffold (auth/oauth.py) reviewed
+  [x/○] Bedrock agent scaffolds (agents/bedrock.py, agents/inline_agent.py) reviewed
+  [x/○] API scaffold (api/agents.py) reviewed
+  [x/○] UI residue (UsersPanel, EmptyState, etc.) reviewed
+  [x/○] Stub seed task reviewed
+  [x/○] pre-push gate passing after deletions
+
 Phase 1 — Rename
   [x/○] Package renamed: starter → <project-name>
-  [x/○] CDK stack renamed: AgentCoreStack → <ProjectName>Stack
+  [x/○] CDK stack renamed: AgentCoreStarterStack → <ProjectName>Stack
   [x/○] GitHub repo updated: warlordofmars/agentcore-starter → <owner>/<repo>
   [x/○] tasks.py updated
+  [x/○] Source defaults (auth/, logging) updated
+  [x/○] UI source updated (api.js filename, support email)
+  [x/○] docs-site config + content updated
+  [x/○] Cross-grep clean (no remaining template fingerprints)
   [x/○] pre-push gate passing
 
 Phase 2 — AWS prerequisites
@@ -525,7 +690,7 @@ Phase 6 — Scaffold replaced
 
 Phase 6 items are always `○` — the agent can't know when the user considers their own logic "done". Everything else is checkable from the repo and AWS state.
 
-If any Phase 1–5 item is `○`, do not declare setup complete. Identify the first incomplete item and offer to continue from there.
+If any Phase 0–5 item is `○`, do not declare setup complete. Identify the first incomplete item and offer to continue from there.
 
 ---
 
