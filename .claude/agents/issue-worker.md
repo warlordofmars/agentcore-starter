@@ -84,6 +84,13 @@ Loading a skill means reading the full body of `SKILL.md` into your working cont
 
 If no skills match, proceed to step 2. Borderline matches should err toward loading; the load-on-demand cost is small.
 
+**Surface the discovery decision on every outcome** — §1.5 must produce evidence in the agent's output that an observer can read after the fact. The exact phrasing is the agent's call; the requirement is that the four cases below are each visibly logged:
+
+- **Pre-scan announce** — before running the `ls` command, surface a one-line announcement that the scan is starting (e.g. *"Scanning `.claude/skills/` for skills matching this issue's surface"*). This confirms §1.5 fired at all.
+- **On match + load** — for each loaded skill, surface one line naming the skill (e.g. *"Loaded skill: `<name>`"*). Multiple matches produce multiple lines.
+- **On zero matches** — surface one line confirming the scan completed without matches (e.g. *"Scan complete; no skills matched this issue's surface"*).
+- **On scan failure** — if the `ls` command fails or produces no output unexpectedly, surface a one-line announce with the error so the failure is visible rather than silent.
+
 ### 2. Branch
 
 Always branch off `origin/development`, never off another feature branch:
