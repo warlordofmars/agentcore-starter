@@ -76,8 +76,10 @@ Before branching, scan `.claude/skills/` for skills whose triggers match the cur
 # with a genuine scan failure. find returns success with empty output
 # when no files match, and fails only on real errors (missing dir,
 # permission denied), letting the four discovery outcomes below stay
-# distinguishable.
-find .claude/skills -maxdepth 2 -name SKILL.md -type f 2>&1
+# distinguishable. Keep stdout (the parseable file list) and stderr
+# (any error text) on separate streams — do NOT redirect with `2>&1`
+# or the agent may misread an error line as a SKILL.md path.
+find .claude/skills -maxdepth 2 -name SKILL.md -type f
 ```
 
 For each `SKILL.md` found, read its frontmatter and decide whether to load it. **Hybrid OR-match** — load the skill if **either** condition holds:
@@ -91,12 +93,19 @@ Loading a skill means reading the full body of `SKILL.md` into your working cont
 
 If no skills match, proceed to step 2. Borderline matches should err toward loading; the load-on-demand cost is small.
 
-**Surface the discovery decision on every outcome** — §1.5 must produce evidence in the agent's output that an observer can read after the fact. The exact phrasing is the agent's call; the requirement is that the four mutually-exclusive cases below are each visibly logged:
+**Surface the discovery decision on every outcome** — §1.5 must produce evidence in the agent's output that an observer can read after the fact. The exact phrasing is the agent's call; the requirement is that the four cases below are each visibly logged. The cases are not strictly mutually exclusive (e.g. `find` can exit non-zero while still printing some matching paths under a partial-permission-denied condition); apply this **precedence** when more than one applies:
+
+1. **Pre-scan announce** is always emitted, regardless of any other case.
+2. **Scan failure** is emitted whenever the scan command exits non-zero, even if some paths were also printed. Per-path **match + load** lines (for whichever paths *were* printed) are emitted alongside it; this preserves visibility of partial recovery without hiding the failure.
+3. **Match + load** lines are emitted for each path-match that loaded successfully.
+4. **Zero matches** is emitted *only* when the scan exited 0, no errors occurred, and no skill's triggers matched the issue's surface (or no `SKILL.md` files were present to evaluate). Do not emit this if the failure case fired.
+
+The four cases:
 
 - **Pre-scan announce** — before running the scan command, surface a one-line announcement that the scan is starting (e.g. *"Scanning `.claude/skills/` for skills matching this issue's surface"*). This confirms §1.5 fired at all.
 - **On match + load** — for each loaded skill, surface one line naming the skill (e.g. *"Loaded skill: `<name>`"*). Multiple matches produce multiple lines.
 - **On zero matches** — the scan succeeded (exit 0) but no skill's triggers matched the issue's surface, OR no `SKILL.md` files were present to evaluate. Surface one line confirming the scan completed without matches (e.g. *"Scan complete; no skills matched this issue's surface"*).
-- **On scan failure** — the scan command itself errored (non-zero exit: missing `.claude/skills/` directory, permission denied, etc.). Surface a one-line announce with the error text so the failure is visible rather than silent. Do NOT collapse this into the zero-match case — they are mechanically distinct (exit code) and a silent failure here is exactly the gap this section closes.
+- **On scan failure** — the scan command itself errored (non-zero exit: missing `.claude/skills/` directory, permission denied, etc.). Surface a one-line announce with the stderr text so the failure is visible rather than silent. Do NOT collapse this into the zero-match case — they are mechanically distinct (exit code) and a silent failure here is exactly the gap this section closes.
 
 ### 2. Branch
 
