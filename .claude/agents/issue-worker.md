@@ -70,7 +70,14 @@ If closed or already has an open PR, skip it and move to the next. If ambiguous,
 Before branching, scan `.claude/skills/` for skills whose triggers match the current issue. See ADR-0006 for the full skill contract; the scan logic below is the agent's implementation of it.
 
 ```bash
-ls .claude/skills/*/SKILL.md 2>/dev/null
+# Use find rather than `ls .claude/skills/*/SKILL.md` — the bare ls form
+# exits non-zero with stderr suppressed when the glob doesn't expand
+# (zero skills installed), which conflates "no skills installed"
+# with a genuine scan failure. find returns success with empty output
+# when no files match, and fails only on real errors (missing dir,
+# permission denied), letting the four discovery outcomes below stay
+# distinguishable.
+find .claude/skills -maxdepth 2 -name SKILL.md -type f 2>&1
 ```
 
 For each `SKILL.md` found, read its frontmatter and decide whether to load it. **Hybrid OR-match** — load the skill if **either** condition holds:
@@ -84,12 +91,12 @@ Loading a skill means reading the full body of `SKILL.md` into your working cont
 
 If no skills match, proceed to step 2. Borderline matches should err toward loading; the load-on-demand cost is small.
 
-**Surface the discovery decision on every outcome** — §1.5 must produce evidence in the agent's output that an observer can read after the fact. The exact phrasing is the agent's call; the requirement is that the four cases below are each visibly logged:
+**Surface the discovery decision on every outcome** — §1.5 must produce evidence in the agent's output that an observer can read after the fact. The exact phrasing is the agent's call; the requirement is that the four mutually-exclusive cases below are each visibly logged:
 
-- **Pre-scan announce** — before running the `ls` command, surface a one-line announcement that the scan is starting (e.g. *"Scanning `.claude/skills/` for skills matching this issue's surface"*). This confirms §1.5 fired at all.
+- **Pre-scan announce** — before running the scan command, surface a one-line announcement that the scan is starting (e.g. *"Scanning `.claude/skills/` for skills matching this issue's surface"*). This confirms §1.5 fired at all.
 - **On match + load** — for each loaded skill, surface one line naming the skill (e.g. *"Loaded skill: `<name>`"*). Multiple matches produce multiple lines.
-- **On zero matches** — surface one line confirming the scan completed without matches (e.g. *"Scan complete; no skills matched this issue's surface"*).
-- **On scan failure** — if the `ls` command fails or produces no output unexpectedly, surface a one-line announce with the error so the failure is visible rather than silent.
+- **On zero matches** — the scan succeeded (exit 0) but no skill's triggers matched the issue's surface, OR no `SKILL.md` files were present to evaluate. Surface one line confirming the scan completed without matches (e.g. *"Scan complete; no skills matched this issue's surface"*).
+- **On scan failure** — the scan command itself errored (non-zero exit: missing `.claude/skills/` directory, permission denied, etc.). Surface a one-line announce with the error text so the failure is visible rather than silent. Do NOT collapse this into the zero-match case — they are mechanically distinct (exit code) and a silent failure here is exactly the gap this section closes.
 
 ### 2. Branch
 
